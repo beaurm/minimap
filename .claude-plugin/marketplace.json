@@ -1,0 +1,5 @@
+{
+  "name": "claude-nodes",
+  "owner": { "name": "beaurm" },
+  "plugins": [{ "name": "project-map", "source": "./" }]
+}

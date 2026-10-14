@@ -1,0 +1,9 @@
+{
+  "name": "project-map",
+  "version": "0.1.0",
+  "description": "Live high-level map of the project showing which section Claude is working in (demo with a dummy graph)",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "beaurm"
+  }
+}
