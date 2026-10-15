@@ -4,6 +4,7 @@ import type { ProjectMap } from '../types'
 export type Slot = {
   id: string
   kind: 'box' | 'lane'
+  /** The row it sits on: a layer too wide for the pane takes several rows. */
   layer: number
   /** First column, and width in columns. */
   left: number
@@ -18,9 +19,12 @@ export type Layout = {
   boxW: number
   gap: number
   width: number
+  /** The rows, top to bottom: each layer of the graph, wrapped where it is too wide. */
   layers: Slot[][]
   slots: Map<string, Slot>
   segments: Segment[]
+  /** The edges drawn: the map's, less those a longer path already implies. */
+  edges: [string, string][]
 }
 
 const MAX_BOX_W = 18
@@ -49,24 +53,107 @@ function assignLayers(map: ProjectMap): Map<string, number> {
   return layer
 }
 
+/**
+ * The map's edges less the ones a longer path already says: with a → b → c,
+ * a → c adds nothing to the picture and only crosses other lines. The pane
+ * draws these; the map file keeps every edge.
+ */
+export function displayEdges(edges: [string, string][]): [string, string][] {
+  const out = new Map<string, string[]>()
+  for (const [a, b] of edges) out.set(a, [...(out.get(a) ?? []), b])
+  const reachesWithout = (from: string, to: string, skip: [string, string]) => {
+    const seen = new Set<string>([from])
+    const queue = [from]
+    while (queue.length) {
+      const node = queue.shift()!
+      for (const next of out.get(node) ?? []) {
+        if (node === skip[0] && next === skip[1]) continue
+        if (next === to) return true
+        if (!seen.has(next)) {
+          seen.add(next)
+          queue.push(next)
+        }
+      }
+    }
+    return false
+  }
+  return edges.filter(edge => !reachesWithout(edge[0], edge[1], edge))
+}
+
+// The last few layouts, by map and width: a pane redraws on every tool call, the map rarely changes.
+const layouts = new Map<string, Layout>()
+const KEPT_LAYOUTS = 4
+
 /** Lays the map out in rows that fit `columns` where they can (boxes shrink to MIN_BOX_W). */
 export function layoutMap(map: ProjectMap, columns: number): Layout {
-  const layerOf = assignLayers(map)
+  const key = `${columns} ${JSON.stringify(map)}`
+  const kept = layouts.get(key)
+  if (kept) return kept
+  const layout = computeLayout(map, columns)
+  layouts.set(key, layout)
+  if (layouts.size > KEPT_LAYOUTS) layouts.delete(layouts.keys().next().value!)
+  return layout
+}
+
+function computeLayout(map: ProjectMap, columns: number): Layout {
+  const edges = displayEdges(map.edges)
+  const layerOf = assignLayers({ ...map, edges })
+  // Each layer on one row first; while that is wider than the pane, wrap the
+  // layers into rows of fewer boxes, in the order the one-row layout settled on.
+  const first = place(map, edges, layerOf, columns, Infinity)
+  if (first.width <= columns) return first
+  const rank = new Map<string, number>()
+  for (const row of first.layers) row.forEach((slot, i) => rank.set(slot.id, i))
+  for (let perRow = Math.max(...first.layers.map(row => row.length)) - 1; perRow >= 1; perRow--) {
+    const layout = place(map, edges, layerOf, columns, perRow, rank)
+    if (layout.width <= columns || perRow === 1) return layout
+  }
+  return first
+}
+
+type Item = { id: string; kind: Slot['kind'] }
+
+/**
+ * Lays the map out with at most `perRow` boxes on a row: a layer with more
+ * takes several rows, and an edge into a later row passes the rows between
+ * through lanes, as an edge skipping layers does.
+ */
+function place(
+  map: ProjectMap,
+  edges: [string, string][],
+  layerOf: Map<string, number>,
+  columns: number,
+  perRow: number,
+  rank?: Map<string, number>,
+): Layout {
   const depth = Math.max(0, ...layerOf.values()) + 1
 
-  // Rows of ids, with a lane id for each layer a long edge passes through.
-  const rows: { id: string; kind: Slot['kind'] }[][] = Array.from({ length: depth }, () => [])
-  for (const s of map.sections) rows[layerOf.get(s.id)!]!.push({ id: s.id, kind: 'box' })
+  // Which row each box lands on: its layer's rows follow the rows of the layers above.
+  const rowOf = new Map<string, number>()
+  let next = 0
+  for (let l = 0; l < depth; l++) {
+    const boxes = map.sections.filter(s => layerOf.get(s.id) === l).map(s => s.id)
+    if (rank) boxes.sort((x, y) => (rank.get(x) ?? 0) - (rank.get(y) ?? 0))
+    // As many rows as the layer needs, its boxes spread evenly over them (6 in rows of 5: 3 + 3).
+    const count = Math.max(1, Math.ceil(boxes.length / perRow))
+    const each = Math.ceil(boxes.length / count)
+    boxes.forEach((id, i) => rowOf.set(id, next + Math.floor(i / each)))
+    next += count
+  }
+
+  // Rows of ids, with a lane id for each row an edge passes through.
+  const rows: Item[][] = Array.from({ length: next }, () => [])
+  for (const s of map.sections) rows[rowOf.get(s.id)!]!.push({ id: s.id, kind: 'box' })
   const segments: Segment[] = []
-  for (const edge of map.edges) {
+  for (const edge of edges) {
     const [from, to] = edge
-    const a = layerOf.get(from)!
-    const b = layerOf.get(to)!
+    const a = rowOf.get(from)!
+    const b = rowOf.get(to)!
     if (b <= a) continue // an upward edge (a cycle): not drawn
     let prev = from
-    for (let l = a + 1; l < b; l++) {
-      const lane = `${from}>${to}@${l}`
-      rows[l]!.push({ id: lane, kind: 'lane' })
+    for (let r = a + 1; r < b; r++) {
+      const lane = `${from}>${to}@${r}`
+      rows[r]!.push({ id: lane, kind: 'lane' })
       segments.push({ from: prev, to: lane, edge })
       prev = lane
     }
@@ -76,21 +163,21 @@ export function layoutMap(map: ProjectMap, columns: number): Layout {
   // Order each row by the mean position of what feeds it, to limit crossings.
   const order = new Map<string, number>()
   rows[0]!.forEach((item, i) => order.set(item.id, i))
-  for (let l = 1; l < depth; l++) {
-    const row = rows[l]!
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r]!
     const weight = (id: string) => {
       const parents = segments.filter(s => s.to === id).map(s => order.get(s.from) ?? 0)
       return parents.length ? parents.reduce((x, y) => x + y, 0) / parents.length : Infinity
     }
     const keyed = row.map((item, i) => ({ item, w: weight(item.id), i }))
     keyed.sort((x, y) => x.w - y.w || x.i - y.i)
-    rows[l] = keyed.map(k => k.item)
-    rows[l]!.forEach((item, i) => order.set(item.id, i))
+    rows[r] = keyed.map(k => k.item)
+    rows[r]!.forEach((item, i) => order.set(item.id, i))
   }
 
-  const rowWidth = (row: { kind: Slot['kind'] }[], boxW: number) =>
+  const rowWidth = (row: Item[], boxW: number) =>
     row.reduce((sum, item) => sum + (item.kind === 'box' ? boxW : 1), 0) + GAP * Math.max(0, row.length - 1)
-  const fitW = (row: { kind: Slot['kind'] }[]) => {
+  const fitW = (row: Item[]) => {
     const boxes = row.filter(i => i.kind === 'box').length
     if (boxes === 0) return MAX_BOX_W
     const fixed = row.length - boxes + GAP * Math.max(0, row.length - 1)
@@ -100,16 +187,16 @@ export function layoutMap(map: ProjectMap, columns: number): Layout {
   const width = Math.max(...rows.map(r => rowWidth(r, boxW)))
 
   const slots = new Map<string, Slot>()
-  const layers = rows.map((row, l) => {
+  const layers = rows.map((row, r) => {
     let left = Math.floor((width - rowWidth(row, boxW)) / 2)
     return row.map(item => {
       const w = item.kind === 'box' ? boxW : 1
-      const slot: Slot = { id: item.id, kind: item.kind, layer: l, left, width: w, center: left + Math.floor(w / 2) }
+      const slot: Slot = { id: item.id, kind: item.kind, layer: r, left, width: w, center: left + Math.floor(w / 2) }
       slots.set(item.id, slot)
       left += w + GAP
       return slot
     })
   })
 
-  return { boxW, gap: GAP, width, layers, slots, segments }
+  return { boxW, gap: GAP, width, layers, slots, segments, edges }
 }

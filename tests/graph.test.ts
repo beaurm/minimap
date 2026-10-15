@@ -2,7 +2,9 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import type { ProjectMap } from '../types'
 import { baseDir, globToRegExp, parseMap, relativeTo, sectionOf, unmappedTopDirs } from '../hooks/graph'
-import { layoutMap } from '../hooks/layout'
+import { displayEdges, layoutMap } from '../hooks/layout'
+import { isActivity, locate, pathsInCommand } from '../hooks/activity'
+import { pathHint } from '../hooks/boxes'
 
 const MAP: ProjectMap = {
   version: 1,
@@ -66,24 +68,92 @@ describe('parseMap', () => {
 
 describe('layoutMap', () => {
   test('layers follow the edges, and a skipped layer gets a lane', () => {
-    const layout = layoutMap(MAP, 80)
-    expect(layout.layers.map(row => row.filter(s => s.kind === 'box').map(s => s.id))).toEqual([
-      ['ui', 'docs'],
-      ['api'],
-      ['core'],
-    ])
-    // ui → core skips the API layer, so it passes through a lane there.
+    // docs → core skips the API layer and nothing else implies it, so it keeps its own line.
+    const map: ProjectMap = { ...MAP, edges: [['ui', 'api'], ['api', 'core'], ['docs', 'core']] }
+    const layout = layoutMap(map, 80)
+    expect(layout.layers.map(row => row.filter(s => s.kind === 'box').map(s => s.id))).toEqual([['ui', 'docs'], ['api'], ['core']])
     expect(layout.layers[1]!.some(s => s.kind === 'lane')).toBe(true)
-    expect(layout.segments.filter(s => s.edge[0] === 'ui' && s.edge[1] === 'core')).toHaveLength(2)
+    expect(layout.segments.filter(s => s.edge[0] === 'docs')).toHaveLength(2)
   })
-  test('boxes shrink to fit narrow panes, never below 10 columns', () => {
+  test('an edge a longer path already implies is not drawn', () => {
+    // ui → core is implied by ui → api → core.
+    expect(displayEdges(MAP.edges)).toEqual([['ui', 'api'], ['api', 'core']])
+    expect(layoutMap(MAP, 80).layers[1]!.some(s => s.kind === 'lane')).toBe(false)
+  })
+  test('boxes shrink to fit narrow panes, and a narrower pane wraps them instead', () => {
     const wide = { ...MAP, sections: Array.from({ length: 6 }, (_, i) => ({ id: `s${i}`, label: `S${i}`, paths: [`s${i}`] })), edges: [] }
     expect(layoutMap(wide, 200).boxW).toBe(18)
     expect(layoutMap(wide, 80).boxW).toBe(11)
-    expect(layoutMap(wide, 30).boxW).toBe(10)
+    const narrow = layoutMap(wide, 30)
+    expect(narrow.width).toBeLessThanOrEqual(30)
+    expect(narrow.boxW).toBeGreaterThanOrEqual(10)
+  })
+  test('a layer too wide for the pane wraps onto balanced rows, and lines reach the lower row through lanes', () => {
+    const leaves = Array.from({ length: 6 }, (_, i) => ({ id: `l${i}`, label: `L${i}`, paths: [`l${i}`] }))
+    const map: ProjectMap = {
+      version: 1,
+      sections: [{ id: 'app', label: 'App', paths: ['app'] }, ...leaves],
+      edges: leaves.map(l => ['app', l.id] as [string, string]),
+    }
+    const layout = layoutMap(map, 60)
+    expect(layout.width).toBeLessThanOrEqual(60)
+    const boxesPerRow = layout.layers.map(row => row.filter(s => s.kind === 'box').length)
+    expect(boxesPerRow).toEqual([1, 3, 3])
+    // Every leaf on the lower row is reached through a lane on the row above.
+    const lower = layout.layers[2]!.filter(s => s.kind === 'box').map(s => s.id)
+    for (const id of lower) expect(layout.segments.filter(s => s.edge[1] === id)).toHaveLength(2)
+    // Wide enough, the layer stays one row.
+    expect(layoutMap(map, 200).layers.map(row => row.length)).toEqual([1, 6])
   })
   test('a cycle does not hang the layout', () => {
     const cyclic: ProjectMap = { ...MAP, edges: [['ui', 'api'], ['api', 'ui']] }
     expect(layoutMap(cyclic, 80).layers.length).toBeGreaterThan(0)
+  })
+})
+
+describe('activity', () => {
+  test('isActivity rejects what an older version stored', () => {
+    expect(isActivity({ sections: ['api'], files: { api: 'a.ts' }, file: 'a.ts', action: 'Reading', callId: 'c1' })).toBe(true)
+    expect(isActivity({ sections: ['api'], files: {}, file: 'a.ts', action: 'Reading', at: 1, isRunning: false })).toBe(false)
+    expect(isActivity({ section: 'api', file: 'a.ts', action: 'Reading', at: 1, isRunning: false })).toBe(false)
+    expect(isActivity(null)).toBe(false)
+  })
+  test('pathsInCommand keeps the words that look like paths', () => {
+    expect(pathsInCommand(`grep -rn "foo" src/api 'lib/x.ts'; cat README.md | head -5`)).toEqual(['src/api', 'lib/x.ts', 'README.md'])
+    expect(pathsInCommand('ls src/ui/*.tsx && curl https://x.dev/a.json')).toEqual(['src/ui'])
+    expect(pathsInCommand('FILE=src/db/a.sql npm test --file=src/core/b.ts')).toEqual(['src/db/a.sql', 'src/core/b.ts'])
+  })
+  test('locate names the file and the section that owns it', () => {
+    expect(locate(MAP, '/repo', 'Read', { file_path: '/repo/src/ui/App.tsx' })).toEqual({
+      file: 'src/ui/App.tsx',
+      sections: ['ui'],
+      files: { ui: 'src/ui/App.tsx' },
+    })
+    expect(locate(MAP, '/repo', 'Edit', { file_path: '/repo/scripts/x.sh' })).toEqual({ file: 'scripts/x.sh', sections: [], files: {} })
+    expect(locate(MAP, '/repo', 'Read', { file_path: '/etc/hosts' })).toBeUndefined()
+  })
+  test('a command touches every section its paths are in, the most named first', () => {
+    expect(locate(MAP, '/repo', 'Bash', { command: 'diff src/ui/c.ts src/api/a.ts src/api/b.ts' })).toEqual({
+      file: 'src/api/a.ts',
+      sections: ['api', 'ui'],
+      files: { api: 'src/api/a.ts', ui: 'src/ui/c.ts' },
+    })
+    // One file each: they keep the order the command names them in.
+    expect(locate(MAP, '/repo', 'Bash', { command: 'cat -n src/ui/a.ts README.md && sed -n 1,9p src/api/b.ts' })?.sections).toEqual([
+      'ui',
+      'docs',
+      'api',
+    ])
+    expect(locate(MAP, '/repo', 'Bash', { command: 'npm test' })).toEqual({ file: 'npm test', sections: [], files: {} })
+  })
+})
+
+describe('box labels', () => {
+  test('a box names its folder, or its file when it owns one file', () => {
+    expect(pathHint(['src/api/**'])).toBe('src/api')
+    expect(pathHint(['hooks/register.tsx'])).toBe('register.tsx')
+    expect(pathHint(['src/**/*.ts'])).toBe('src/**/*.ts')
+    expect(pathHint(['*.md'])).toBe('*.md')
+    expect(pathHint(['hooks/text.ts', 'hooks/svg.ts', 'hooks/connectors.ts'])).toBe('text.ts +2')
   })
 })

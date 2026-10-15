@@ -1,5 +1,14 @@
 {
   "name": "project-map",
-  "owner": { "name": "beaurm" },
-  "plugins": [{ "name": "project-map", "source": "./" }]
+  "owner": {
+    "name": "beaurm"
+  },
+  "plugins": [
+    {
+      "name": "project-map",
+      "source": "./",
+      "description": "A live map of your project in a side pane: its sections, how they depend on each other, and where Claude is working right now"
+    }
+  ],
+  "description": "project-map: a live, high-level map of your project for Claude Code"
 }

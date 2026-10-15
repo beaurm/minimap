@@ -1,7 +1,7 @@
 {
   "name": "project-map",
-  "version": "0.1.0",
-  "description": "Live high-level map of the project showing which section Claude is working in (demo with a dummy graph)",
+  "version": "0.2.0",
+  "description": "A live map of your project in a side pane: its sections, how they depend on each other, and where Claude is working right now",
   "types": "./types/index.d.ts",
   "author": {
     "name": "beaurm"

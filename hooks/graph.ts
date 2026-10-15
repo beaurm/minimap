@@ -1,6 +1,6 @@
 import type { MapSection, ProjectMap } from '../types'
 
-export const MAP_PATH = '.claude/project-map.json'
+export const MAP_PATH = 'project-map.json'
 
 // Top-level folders that are never project sections, so never drift.
 const IGNORED_DIRS = new Set([
@@ -58,8 +58,17 @@ export function parseMap(text: string): { map: ProjectMap } | { error: string } 
 
 const hasGlob = (segment: string) => /[*?]/.test(segment)
 
+// Compiled patterns, by pattern: sectionOf runs per tool call and per path in a command.
+const compiled = new Map<string, RegExp>()
+
 /** A pattern as a RegExp over repo-relative paths; a plain folder also matches what's inside. */
 export function globToRegExp(pattern: string): RegExp {
+  let re = compiled.get(pattern)
+  if (!re) compiled.set(pattern, (re = compileGlob(pattern)))
+  return re
+}
+
+function compileGlob(pattern: string): RegExp {
   const clean = pattern.replace(/^\.\//, '').replace(/\/+$/, '')
   const full = hasGlob(clean) ? clean : `${clean}/**`
   let source = ''
