@@ -29,19 +29,19 @@ Where it draws:
 At the prompt of a terminal Claude Code session:
 
 ```text
-/plugin install project-map --marketplace beaurm/claude_nodes
+/plugin install claude-nodes --marketplace beaurm/claude_nodes
 ```
 
 Or from a shell:
 
 ```sh
-claude plugin install project-map --marketplace beaurm/claude_nodes
+claude plugin install claude-nodes --marketplace beaurm/claude_nodes
 ```
 
 Answer `y` to add the marketplace, then press Enter to pick the user scope. The pane opens at the start of each session.
 
 - **Following Claude:** on a map taller than the pane, the pane scrolls to the section Claude moves to. It only moves when that section is off screen, so you can scroll around yourself (focus the pane with ctrl+x tab) without it fighting you.
-- **Closing:** the pane's `x` closes it, and it stays closed in later sessions too. While it's closed, a line under the prompt says `pane closed · /project-map to reopen`. `/project-map` brings it back, and from then on it opens with each session again.
+- **Closing:** the pane's `x` closes it, and it stays closed in later sessions too. While it's closed, a line under the prompt says `pane closed · /claude-nodes to reopen`. `/claude-nodes` brings it back, and from then on it opens with each session again.
 
 In the desktop app: click **+** next to the prompt box, then **Plugins**, **Add marketplace** with `beaurm/claude_nodes`, then **Add plugin**.
 
@@ -50,17 +50,17 @@ In the desktop app: click **+** next to the prompt box, then **Plugins**, **Add 
 The first time, in your project:
 
 ```text
-/project-map init
+/claude-nodes init
 ```
 
-Claude explores the repo and writes `project-map.json`. Commit it so everyone shares the same map.
+Claude explores the repo and writes `claude-nodes.json`. Commit it so everyone shares the same map.
 
 | Command | What it does | Uses tokens |
 | --- | --- | --- |
-| `/project-map` | Opens the pane | No |
-| `/project-map init` | Asks Claude to explore the repo and write the map | Yes |
-| `/project-map update` | Asks Claude to bring the map up to date, given what drifted | Yes |
-| `/project-map reload` | Re-reads the map after you edit it by hand | No |
+| `/claude-nodes` | Opens the pane | No |
+| `/claude-nodes init` | Asks Claude to explore the repo and write the map | Yes |
+| `/claude-nodes update` | Asks Claude to bring the map up to date, given what drifted | Yes |
+| `/claude-nodes reload` | Re-reads the map after you edit it by hand | No |
 
 Only `init` and `update` call Claude, and only when you run them.
 
@@ -77,7 +77,7 @@ Tracking adds no model calls and never blocks a tool call. If it fails, the call
 
 ### The map file
 
-`project-map.json` at the repo root:
+`claude-nodes.json` at the repo root:
 
 ```json
 {
@@ -104,7 +104,7 @@ Because sections are path patterns, new files in existing folders belong to thei
 - a file Claude writes that no section owns,
 - a section whose folders no longer exist.
 
-When something drifted, the pane says `Map out of date` and lists it. Run `/project-map update` when you want it fixed.
+When something drifted, the pane says `Map out of date` and lists it. Run `/claude-nodes update` when you want it fixed.
 
 ## Develop
 
@@ -121,7 +121,7 @@ claude plugin validate .
 claude plugin test .
 ```
 
-One catch when trying `init` or `update` on this repo itself: Claude Code protects a loaded plugin's own files, so with `--plugin-dir .` Claude can't write `project-map.json` here. Load a copy of the plugin from another folder instead.
+One catch when trying `init` or `update` on this repo itself: Claude Code protects a loaded plugin's own files, so with `--plugin-dir .` Claude can't write `claude-nodes.json` here. Load a copy of the plugin from another folder instead.
 
 ## Layout
 
@@ -142,4 +142,4 @@ One catch when trying `init` or `update` on this repo itself: Claude Code protec
 | `hooks/boxes.ts` | What each box shows: its file or folder, and the highlight |
 | `types/index.d.ts` | The map's shape and the state the mod keeps |
 | `tests/` | Unit tests for the helpers, and pane tests against a fake repo |
-| `project-map.json` | This repo's own map, made with `/project-map init` |
+| `claude-nodes.json` | This repo's own map, made with `/claude-nodes init` |

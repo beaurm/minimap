@@ -1,6 +1,6 @@
 import type { MapSection, ProjectMap } from '../types'
 
-export const MAP_PATH = 'project-map.json'
+export const MAP_PATH = 'claude-nodes.json'
 
 // Top-level folders that are never project sections, so never drift.
 const IGNORED_DIRS = new Set([

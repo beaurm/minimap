@@ -13,14 +13,14 @@ const MAP = {
 }
 
 const PROPS = {
-  title: 'Project map',
+  title: 'Claude Nodes',
   isFocused: false,
   bodyColumns: 60,
   placement: 'dock',
   scroll: { offset: 0, bodyRows: 30 },
   view: {},
 } as const
-const PANE = { component: 'Pane', props: PROPS, requestId: 'project-map' } as const
+const PANE = { component: 'Pane', props: PROPS, requestId: 'claude-nodes' } as const
 
 /**
  * A fake repo: the files the plugin may read, and its folders. The engine
@@ -41,10 +41,10 @@ function fakeRepo(on: On, files: Record<string, string>, dirs: string[]) {
   on('session.cwd', async () => ({ value: '/repo' }))
 }
 
-/** Runs `/project-map <args>` as the person would. */
+/** Runs `/claude-nodes <args>` as the person would. */
 const run = ($: Engine, args: string) =>
   $.command.run({
-    command: 'project-map',
+    command: 'claude-nodes',
     args,
     origin: { kind: 'composer' },
     presentation: { isFullscreen: true, columns: 80 },
@@ -53,16 +53,16 @@ const run = ($: Engine, args: string) =>
 test('no map: the pane says how to make one', async ($, on) => {
   fakeRepo(on, {}, ['src'])
   await run($, 'reload')
-  const ui = await $.ui.mount({ plugin: 'project-map', surface: 'terminal', ...PANE })
-  expect(await ui.find({ type: 'Text', text: /No project map yet/ })).toBeDefined()
+  const ui = await $.ui.mount({ plugin: 'claude-nodes', surface: 'terminal', ...PANE })
+  expect(await ui.find({ type: 'Text', text: /No map yet/ })).toBeDefined()
   await ui.unmount()
 })
 
 test('a map draws its sections and reports drift', async ($, on) => {
-  fakeRepo(on, { 'project-map.json': JSON.stringify(MAP) }, ['src/api', 'src/db', 'scripts'])
+  fakeRepo(on, { 'claude-nodes.json': JSON.stringify(MAP) }, ['src/api', 'src/db', 'scripts'])
   await run($, 'reload')
   for (const surface of ['terminal', 'desktop'] as const) {
-    const ui = await $.ui.mount({ plugin: 'project-map', surface, ...PANE })
+    const ui = await $.ui.mount({ plugin: 'claude-nodes', surface, ...PANE })
     if (surface === 'terminal') {
       for (const label of ['API', 'Database', 'Legacy']) {
         expect(await ui.find({ type: 'Text', text: new RegExp(`^${label}$`) })).toBeDefined()
@@ -82,9 +82,9 @@ test('a map draws its sections and reports drift', async ($, on) => {
 })
 
 test('an invalid map shows the error instead of a graph', async ($, on) => {
-  fakeRepo(on, { 'project-map.json': '{"sections": []}' }, ['src'])
+  fakeRepo(on, { 'claude-nodes.json': '{"sections": []}' }, ['src'])
   await run($, 'reload')
-  const ui = await $.ui.mount({ plugin: 'project-map', surface: 'terminal', ...PANE })
+  const ui = await $.ui.mount({ plugin: 'claude-nodes', surface: 'terminal', ...PANE })
   expect(await ui.find({ type: 'Text', text: /non-empty array/ })).toBeDefined()
   await ui.unmount()
 })
@@ -101,12 +101,12 @@ test('init asks Claude only when there is no map yet', async ($, on) => {
   await run($, 'init')
   await clock.advance(10)
   expect(prompts).toHaveLength(1)
-  expect(prompts[0]).toContain('project-map.json')
+  expect(prompts[0]).toContain('claude-nodes.json')
 })
 
 test('a tool call lights up its section, and the turn ending leaves a trail', async ($, on) => {
   mock.clock(on)
-  fakeRepo(on, { 'project-map.json': JSON.stringify(MAP) }, ['src/api', 'src/db'])
+  fakeRepo(on, { 'claude-nodes.json': JSON.stringify(MAP) }, ['src/api', 'src/db'])
   on('tool.call', async () => ({ result: { ok: true } }) as never)
   on('turn.start', async (_, e) => ({ turnId: e.turnId }) as never)
   on('turn.complete', async () => ({ text: '' }) as never)
@@ -115,7 +115,7 @@ test('a tool call lights up its section, and the turn ending leaves a trail', as
   await $.turn.start({ text: 'fix the api', turnId: 't1' } as never)
   await $.tool.call({ tool: 'Edit', tool_use_id: 'u1', file_path: '/repo/src/api/routes.ts', old_string: 'a', new_string: 'b' } as never)
 
-  const ui = await $.ui.mount({ plugin: 'project-map', surface: 'terminal', ...PANE })
+  const ui = await $.ui.mount({ plugin: 'claude-nodes', surface: 'terminal', ...PANE })
   expect(await ui.find({ type: 'Text', text: /^Editing$/ })).toBeDefined()
   // The active box shows the file it is on instead of its folder.
   expect(await ui.find({ type: 'Text', text: /^routes\.ts$/ })).toBeDefined()
@@ -124,7 +124,7 @@ test('a tool call lights up its section, and the turn ending leaves a trail', as
   await ui.unmount()
 
   await $.turn.complete({ turnId: 't1', answer: 'done', durationMs: 5, isAborted: false, reason: 'answer' } as never)
-  const after = await $.ui.mount({ plugin: 'project-map', surface: 'terminal', ...PANE })
+  const after = await $.ui.mount({ plugin: 'claude-nodes', surface: 'terminal', ...PANE })
   expect(await after.find({ type: 'Text', text: /Idle · last/ })).toBeDefined()
   // Off duty: no box is doubled, and the section it worked in stays dim orange.
   expect((await after.find({ key: 'box-api' }))?.props).toMatchObject({ borderStyle: 'round', borderColor: 'claude', borderDimColor: true })
@@ -133,33 +133,33 @@ test('a tool call lights up its section, and the turn ending leaves a trail', as
 
 test('a subagent shows on its own line and leaves when its turn ends', async ($, on) => {
   mock.clock(on)
-  fakeRepo(on, { 'project-map.json': JSON.stringify(MAP) }, ['src/api', 'src/db'])
+  fakeRepo(on, { 'claude-nodes.json': JSON.stringify(MAP) }, ['src/api', 'src/db'])
   on('tool.call', async () => ({ result: { ok: true } }) as never)
   on('turn.complete', async () => ({ text: '' }) as never)
   await run($, 'reload')
 
   await $.tool.call({ tool: 'Read', tool_use_id: 'u2', agentId: 'a1', file_path: '/repo/src/db/schema.sql' } as never)
-  const ui = await $.ui.mount({ plugin: 'project-map', surface: 'terminal', ...PANE })
+  const ui = await $.ui.mount({ plugin: 'claude-nodes', surface: 'terminal', ...PANE })
   expect(await ui.find({ type: 'Text', text: /^subagent $/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^schema\.sql$/ })).toBeDefined()
   await ui.unmount()
 
   await $.turn.complete({ agentId: 'a1', turnId: 't2', answer: '', durationMs: 5, isAborted: false, reason: 'answer' } as never)
-  const after = await $.ui.mount({ plugin: 'project-map', surface: 'terminal', ...PANE })
+  const after = await $.ui.mount({ plugin: 'claude-nodes', surface: 'terminal', ...PANE })
   expect(await after.find({ type: 'Text', text: /^subagent $/ })).toBeUndefined()
   await after.unmount()
 })
 
 test('reading a file no section owns marks the map out of date', async ($, on) => {
   mock.clock(on)
-  fakeRepo(on, { 'project-map.json': JSON.stringify({ ...MAP, sections: MAP.sections.slice(0, 2) }) }, ['src/api', 'src/db'])
+  fakeRepo(on, { 'claude-nodes.json': JSON.stringify({ ...MAP, sections: MAP.sections.slice(0, 2) }) }, ['src/api', 'src/db'])
   on('tool.call', async () => ({ result: { ok: true } }) as never)
   await run($, 'reload')
   await $.tool.call({ tool: 'Read', tool_use_id: 'u1', file_path: '/repo/src/jobs/queue.ts' } as never)
   // Hidden folders are not part of the map, so reading there is no drift.
   await $.tool.call({ tool: 'Read', tool_use_id: 'u2', file_path: '/repo/.github/ci.yml' } as never)
 
-  const ui = await $.ui.mount({ plugin: 'project-map', surface: 'terminal', ...PANE })
+  const ui = await $.ui.mount({ plugin: 'claude-nodes', surface: 'terminal', ...PANE })
   expect(await ui.find({ type: 'Text', text: /^Map out of date: 1 unmapped$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /src\/jobs\/queue\.ts/ })).toBeDefined()
   await ui.unmount()
@@ -167,7 +167,7 @@ test('reading a file no section owns marks the map out of date', async ($, on) =
 
 test('parallel commands over several files light every section they touch', async ($, on) => {
   mock.clock(on)
-  fakeRepo(on, { 'project-map.json': JSON.stringify(MAP) }, ['src/api', 'src/db', 'legacy'])
+  fakeRepo(on, { 'claude-nodes.json': JSON.stringify(MAP) }, ['src/api', 'src/db', 'legacy'])
   // Hold each call open until the test lets it finish, as a slow command would.
   const finish: (() => void)[] = []
   on('tool.call', () => new Promise(resolve => finish.push(() => resolve({ result: { ok: true } } as never))))
@@ -182,7 +182,7 @@ test('parallel commands over several files light every section they touch', asyn
   for (let i = 0; i < 1000 && finish.length < 2; i++) await Promise.resolve()
   expect(finish).toHaveLength(2)
 
-  const ui = await $.ui.mount({ plugin: 'project-map', surface: 'terminal', ...PANE })
+  const ui = await $.ui.mount({ plugin: 'claude-nodes', surface: 'terminal', ...PANE })
   for (const id of ['api', 'db', 'gone']) {
     expect((await ui.find({ key: `box-${id}` }))?.props).toMatchObject({ borderStyle: 'double' })
   }
@@ -193,7 +193,7 @@ test('parallel commands over several files light every section they touch', asyn
   // Once both finish, the latest call stays lit and the other becomes trail.
   for (const done of finish) done()
   await Promise.all([first, second])
-  const after = await $.ui.mount({ plugin: 'project-map', surface: 'terminal', ...PANE })
+  const after = await $.ui.mount({ plugin: 'claude-nodes', surface: 'terminal', ...PANE })
   expect((await after.find({ key: 'box-gone' }))?.props).toMatchObject({ borderStyle: 'double' })
   expect((await after.find({ key: 'box-api' }))?.props).toMatchObject({ borderStyle: 'round', borderColor: 'claude' })
   await after.unmount()
@@ -209,10 +209,10 @@ test('a session that starts with the pane closed says how to reopen it', async (
   })
   on('session.start', async (_, e) => e as never)
   mock.store(on, { paneClosed: true })
-  fakeRepo(on, { 'project-map.json': JSON.stringify(MAP) }, ['src/api', 'src/db'])
+  fakeRepo(on, { 'claude-nodes.json': JSON.stringify(MAP) }, ['src/api', 'src/db'])
 
   await $.session.start({ source: 'startup', cwd: '/repo' } as never)
-  expect(statuses.at(-1)).toBe('pane closed · /project-map to reopen')
+  expect(statuses.at(-1)).toBe('pane closed · /claude-nodes to reopen')
 
   await run($, '')
   expect(statuses.at(-1)).toBeUndefined()
@@ -222,22 +222,22 @@ test('after a /clear the map loads again without a session start', async ($, on)
   const clock = mock.clock(on)
   const statuses: (string | undefined)[] = []
   on('session.end', async (_, e) => ({ sessionId: e.sessionId }) as never)
-  on('ui.panes', async () => ({ value: [{ id: 'project-map', title: 'Project map', isShown: true, isFocused: false, isPlaced: true }] }) as never)
+  on('ui.panes', async () => ({ value: [{ id: 'claude-nodes', title: 'Claude Nodes', isShown: true, isFocused: false, isPlaced: true }] }) as never)
   on('ui.status', async (_, e) => {
     statuses.push((e as { text?: string }).text)
     return { value: undefined } as never
   })
-  fakeRepo(on, { 'project-map.json': JSON.stringify(MAP) }, ['src/api', 'src/db'])
+  fakeRepo(on, { 'claude-nodes.json': JSON.stringify(MAP) }, ['src/api', 'src/db'])
 
   // A fresh session's state: nothing loaded, as the pane found it after /clear.
-  const before = await $.ui.mount({ plugin: 'project-map', surface: 'terminal', ...PANE })
-  expect(await before.find({ type: 'Text', text: /No project map yet/ })).toBeDefined()
+  const before = await $.ui.mount({ plugin: 'claude-nodes', surface: 'terminal', ...PANE })
+  expect(await before.find({ type: 'Text', text: /No map yet/ })).toBeDefined()
   await before.unmount()
 
   await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } } as never)
   await clock.advance(1)
 
-  const after = await $.ui.mount({ plugin: 'project-map', surface: 'terminal', ...PANE })
+  const after = await $.ui.mount({ plugin: 'claude-nodes', surface: 'terminal', ...PANE })
   expect(await after.find({ key: 'box-api' })).toBeDefined()
   await after.unmount()
   // The pane is still up, so no "pane closed" hint.

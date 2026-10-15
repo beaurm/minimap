@@ -2,7 +2,7 @@
   "version": 1,
   "sections": [
     { "id": "register", "label": "Pane UI", "description": "Plugin entry: registers the map pane, commands and hook handlers", "paths": ["hooks/register.tsx", "hooks/hooks.json", "hooks/prompts.ts"] },
-    { "id": "graph", "label": "Graph", "description": "Parses project-map.json and matches files to sections via globs", "paths": ["hooks/graph.ts"] },
+    { "id": "graph", "label": "Graph", "description": "Parses claude-nodes.json and matches files to sections via globs", "paths": ["hooks/graph.ts"] },
     { "id": "layout", "label": "Layout", "description": "Computes box positions and edge routes for the diagram", "paths": ["hooks/layout.ts"] },
     { "id": "render", "label": "Render", "description": "Draws the laid-out map: box labels, connector lines and the SVG", "paths": ["hooks/terminal.tsx", "hooks/boxes.ts", "hooks/svg.ts", "hooks/connectors.ts"] },
     { "id": "activity", "label": "Activity", "description": "Maps tool calls and shell commands to touched sections", "paths": ["hooks/activity.ts", "hooks/tracking.ts"] },

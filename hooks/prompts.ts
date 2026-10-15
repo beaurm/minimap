@@ -1,4 +1,4 @@
-/** What `/project-map init` and `update` ask Claude: the only token spend. */
+/** What `/claude-nodes init` and `update` ask Claude: the only token spend. */
 import type { ProjectMap } from '../types'
 import { MAP_PATH } from './graph'
 
@@ -18,7 +18,7 @@ const RULES = `Rules for the file:
 - No positions or layout: the plugin computes those.`
 
 export function initPrompt(): string {
-  return `Create the project map for the project-map plugin.
+  return `Create the project map for the claude-nodes plugin.
 
 Explore this repository's structure (folders, entry points, and imports where needed to tell what depends on what; don't read every file), then write \`${MAP_PATH}\` in exactly this JSON shape:
 

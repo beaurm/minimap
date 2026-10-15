@@ -1,8 +1,9 @@
 {
-  "name": "project-map",
+  "name": "claude-nodes",
   "version": "0.2.0",
   "description": "A live map of your project in a side pane: its sections, how they depend on each other, and where Claude is working right now",
   "types": "./types/index.d.ts",
+  "license": "MIT",
   "author": {
     "name": "beaurm"
   }

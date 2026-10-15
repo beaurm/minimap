@@ -16,17 +16,17 @@ import {
   EMPTY_TRACKING, MAIN, endCall, endTurn, highlightOf, sanitize, startCall, startTurn,
 } from './tracking'
 
-const PANE = 'project-map'
-const TITLE = 'Project map'
+const PANE = 'claude-nodes'
+const TITLE = 'Claude Nodes'
 
-const graph = atom({ plugin: 'project-map', key: 'graph' } as const, null)
-const loadError = atom({ plugin: 'project-map', key: 'error' } as const, null)
-const unmappedDirs = atom({ plugin: 'project-map', key: 'unmappedDirs' } as const, [])
-const unmappedFiles = atom({ plugin: 'project-map', key: 'unmappedFiles' } as const, [])
-const missing = atom({ plugin: 'project-map', key: 'missing' } as const, [])
-const tracking = atom({ plugin: 'project-map', key: 'tracking' } as const, EMPTY_TRACKING)
-const isPaneOpen = atom({ plugin: 'project-map', key: 'isPaneOpen' } as const, false)
-const followed = atom({ plugin: 'project-map', key: 'followed' } as const, null)
+const graph = atom({ plugin: 'claude-nodes', key: 'graph' } as const, null)
+const loadError = atom({ plugin: 'claude-nodes', key: 'error' } as const, null)
+const unmappedDirs = atom({ plugin: 'claude-nodes', key: 'unmappedDirs' } as const, [])
+const unmappedFiles = atom({ plugin: 'claude-nodes', key: 'unmappedFiles' } as const, [])
+const missing = atom({ plugin: 'claude-nodes', key: 'missing' } as const, [])
+const tracking = atom({ plugin: 'claude-nodes', key: 'tracking' } as const, EMPTY_TRACKING)
+const isPaneOpen = atom({ plugin: 'claude-nodes', key: 'isPaneOpen' } as const, false)
+const followed = atom({ plugin: 'claude-nodes', key: 'followed' } as const, null)
 
 /** The store key remembering, across sessions, that the person closed the pane. */
 const CLOSED_KEY = 'paneClosed'
@@ -139,7 +139,7 @@ async function openPane($: EngineInterface, asked: boolean) {
 
 /** While the pane is closed, a line under the prompt says how to bring it back. */
 function showClosedHint($: EngineInterface, isClosed: boolean) {
-  $.ui.status(isClosed ? 'pane closed · /project-map to reopen' : undefined)
+  $.ui.status(isClosed ? 'pane closed · /claude-nodes to reopen' : undefined)
 }
 
 /** After a /clear: the map, and whether the pane is still up, into the new session's state. */
@@ -160,16 +160,16 @@ function queuePrompt($: EngineInterface, text: string) {
 
 // ── Hooks ────────────────────────────────────────────────────────────────────
 
-const HELP = `/project-map            open the pane
-/project-map init       ask Claude to map this repo (uses tokens)
-/project-map update     ask Claude to bring the map up to date (uses tokens)
-/project-map reload     re-read ${MAP_PATH} after editing it by hand`
+const HELP = `/claude-nodes            open the pane
+/claude-nodes init       ask Claude to map this repo (uses tokens)
+/claude-nodes update     ask Claude to bring the map up to date (uses tokens)
+/claude-nodes reload     re-read ${MAP_PATH} after editing it by hand`
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
-      name: 'project-map',
-      description: 'Project map: open, or init | update | reload',
+      name: 'claude-nodes',
+      description: 'Claude Nodes: open, or init | update | reload',
     })
     await loadMap($)
     // Drop what an older version of the module may have left in the session's state.
@@ -192,27 +192,27 @@ export const register: Register = on => {
     return ended
   })
 
-  on('command.run', { command: 'project-map' }, async ($, e) => {
+  on('command.run', { command: 'claude-nodes' }, async ($, e) => {
     const sub = e.args.trim()
     const map = await read($, graph)
 
     if (sub === '') {
       await openPane($, true)
-      return { text: 'Project map opened.' }
+      return { text: 'Claude Nodes opened.' }
     }
     if (sub === 'reload') {
       await loadMap($)
       const error = await read($, loadError)
       if (error) return { text: `${MAP_PATH} is invalid: ${error}` }
-      return { text: (await read($, graph)) ? 'Project map reloaded.' : `No ${MAP_PATH} found.` }
+      return { text: (await read($, graph)) ? 'Claude Nodes reloaded.' : `No ${MAP_PATH} found.` }
     }
     if (sub === 'init') {
-      if (map) return { text: `This repo already has ${MAP_PATH}. Use /project-map update, or delete the file to start over.` }
+      if (map) return { text: `This repo already has ${MAP_PATH}. Use /claude-nodes update, or delete the file to start over.` }
       queuePrompt($, initPrompt())
       return { text: 'Asked Claude to map this repo.' }
     }
     if (sub === 'update') {
-      if (!map) return { text: `No map yet: run /project-map init first.` }
+      if (!map) return { text: `No map yet: run /claude-nodes init first.` }
       queuePrompt($, updatePrompt(map, await readDrift($)))
       return { text: 'Asked Claude to update the project map.' }
     }
@@ -261,7 +261,7 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // The x closes the pane for good: later sessions keep it closed until /project-map.
+  // The x closes the pane for good: later sessions keep it closed until /claude-nodes.
   on('ui.close', { id: PANE }, async ($, e, next) => {
     const closed = await next(e)
     await update($, isPaneOpen, () => false)
@@ -298,7 +298,7 @@ export const register: Register = on => {
             <Box flexDirection="column" alignItems="center" gap={1}>
               <Svg
                 source={svgMap(map, view.layout, view.lit, t.touches)}
-                alt={`Project map: ${map.sections.map(s => s.label).join(', ')}`}
+                alt={`Claude Nodes: ${map.sections.map(s => s.label).join(', ')}`}
                 isInteractive
               />
               {mapStatus(els, view)}

@@ -7,7 +7,7 @@ export type MapSection = {
   paths: string[]
 }
 
-/** The contents of `project-map.json`. Edges read "from depends on to". */
+/** The contents of `claude-nodes.json`. Edges read "from depends on to". */
 export type ProjectMap = {
   version: 1
   sections: MapSection[]
@@ -49,7 +49,7 @@ export type MapTracking = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'project-map': {
+    'claude-nodes': {
       /** The loaded map; null when the repo has none (or it failed to load). */
       graph: ProjectMap | null
       /** Why the map file could not be loaded; null when it loaded or is absent. */
