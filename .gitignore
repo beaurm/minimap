@@ -2,3 +2,5 @@
 .DS_Store
 *.log
 node_modules/
+# Our own working map of this repo: not part of the plugin
+minimap.json

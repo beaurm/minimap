@@ -154,6 +154,6 @@ describe('box labels', () => {
     expect(pathHint(['hooks/register.tsx'])).toBe('register.tsx')
     expect(pathHint(['src/**/*.ts'])).toBe('src/**/*.ts')
     expect(pathHint(['*.md'])).toBe('*.md')
-    expect(pathHint(['hooks/text.ts', 'hooks/svg.ts', 'hooks/connectors.ts'])).toBe('text.ts +2')
+    expect(pathHint(['hooks/boxes.ts', 'hooks/terminal.tsx', 'hooks/connectors.ts'])).toBe('boxes.ts +2')
   })
 })

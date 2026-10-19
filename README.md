@@ -18,32 +18,23 @@ A Claude Code mod that keeps a high-level map of your project in a side pane: it
 ╰────────────────╯  ╰────────────────╯  ╰────────────────╯
 ```
 
-Where it draws:
-
-- **Terminal (`claude` CLI):** boxes joined by lines in a docked pane. Works in the terminal of any editor.
-- **Claude Code Desktop:** an SVG node graph. Hover a box for its description and how often Claude touched it.
-- **VS Code extension chat panel:** not supported yet, because the extension doesn't draw mod panes. Run `claude` in the VS Code terminal instead.
+minimap runs in the terminal (`claude` CLI), including the built-in terminal of any editor. The VS Code extension is not supported.
 
 ## Install
 
 At the prompt of a terminal Claude Code session:
 
 ```text
-/plugin install minimap --marketplace beaurm/claude_nodes
+/plugin install minimap --marketplace beaurm/minimap
 ```
 
 Or from a shell:
 
 ```sh
-claude plugin install minimap --marketplace beaurm/claude_nodes
+claude plugin install minimap --marketplace beaurm/minimap
 ```
 
-Answer `y` to add the marketplace, then press Enter to pick the user scope. The pane opens at the start of each session.
-
-- **Following Claude:** on a map taller than the pane, the pane scrolls to the section Claude moves to. It only moves when that section is off screen, so you can scroll around yourself (focus the pane with ctrl+x tab) without it fighting you.
-- **Closing:** the pane's `x` closes it, and it stays closed in later sessions too. While it's closed, a line under the prompt says `pane closed · /minimap to reopen`. `/minimap` brings it back, and from then on it opens with each session again.
-
-In the desktop app: click **+** next to the prompt box, then **Plugins**, **Add marketplace** with `beaurm/claude_nodes`, then **Add plugin**.
+Answer `y` to add the marketplace, then press Enter to pick the user scope.
 
 ## Usage
 
@@ -53,16 +44,24 @@ The first time, in your project:
 /minimap init
 ```
 
-Claude explores the repo and writes `minimap.json`. Commit it so everyone shares the same map.
+Claude explores the repo and writes `minimap.json`. You can commit it so teammates who use minimap share the same map.
 
-| Command | What it does | Uses tokens |
+| Action | What it does | Uses tokens |
 | --- | --- | --- |
+| Live tracking | Lights up the sections Claude reads, edits or runs commands on, as it works | No |
+| Drift detection | Notices folders and files the map doesn't cover, and sections whose folders are gone | No |
 | `/minimap` | Opens the pane | No |
 | `/minimap init` | Asks Claude to explore the repo and write the map | Yes |
 | `/minimap update` | Asks Claude to bring the map up to date, given what drifted | Yes |
 | `/minimap reload` | Re-reads the map right away (it also reloads by itself at the start and end of each turn when the file changed) | No |
 
-Only `init` and `update` call Claude, and only when you run them.
+Only `init` and `update` call Claude, and only when you run them. Everything else, tracking included, runs locally without any model calls.
+
+### The pane
+
+- **Opening:** the pane opens at the start of each session.
+- **Following Claude:** on a map taller than the pane, the pane scrolls to the section Claude moves to. It only moves when that section is off screen.
+- **Closing:** the `x` closes the pane, and it stays closed, even in new sessions, until you run `/minimap`. While it's closed, a reminder under the prompt shows that command.
 
 ### Live tracking
 
@@ -106,12 +105,28 @@ Because sections are path patterns, new files in existing folders belong to thei
 
 When something drifted, the pane says `Map out of date` and lists it. Run `/minimap update` when you want it fixed.
 
+## Uninstall
+
+```sh
+claude plugin uninstall minimap
+```
+
+That's all it takes: minimap stops running and its stored settings are removed.
+
+Installing also registered this repo as a marketplace (where Claude Code finds the plugin). That entry does nothing on its own, but if you want no trace left:
+
+```sh
+claude plugin marketplace remove minimap
+```
+
+The `minimap.json` files in your repos are ordinary files: delete them if you no longer want them. To switch minimap off without uninstalling, use `claude plugin disable minimap` (and `enable` to bring it back).
+
 ## Develop
 
 Run Claude Code with the mod loaded straight from this folder:
 
 ```sh
-claude --plugin-dir /path/to/claude_nodes
+claude --plugin-dir /path/to/minimap
 ```
 
 Check and test it:
@@ -138,8 +153,6 @@ One catch when trying `init` or `update` on this repo itself: Claude Code protec
 | `hooks/layout.ts` | Placing any graph in layers |
 | `hooks/connectors.ts` | Routing the lines between layers |
 | `hooks/terminal.tsx` | The pane's drawing: header, footer, and the terminal's map |
-| `hooks/svg.ts` | The map as an SVG (Desktop) |
 | `hooks/boxes.ts` | What each box shows: its file or folder, and the highlight |
 | `types/index.d.ts` | The map's shape and the state the mod keeps |
 | `tests/` | Unit tests for the helpers, and pane tests against a fake repo |
-| `minimap.json` | This repo's own map, made with `/minimap init` |

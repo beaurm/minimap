@@ -62,24 +62,16 @@ test('no map: the pane says how to make one', async ($, on) => {
 test('a map draws its sections and reports drift', async ($, on) => {
   fakeRepo(on, { 'minimap.json': JSON.stringify(MAP) }, ['src/api', 'src/db', 'scripts'])
   await run($, 'reload')
-  for (const surface of ['terminal', 'desktop'] as const) {
-    const ui = await $.ui.mount({ plugin: 'minimap', surface, ...PANE })
-    if (surface === 'terminal') {
-      for (const label of ['API', 'Database', 'Legacy']) {
-        expect(await ui.find({ type: 'Text', text: new RegExp(`^${label}$`) })).toBeDefined()
-      }
-    } else {
-      expect(await ui.find({ type: 'Svg' })).toBeDefined()
-    }
-    // scripts/ is covered by no section; legacy/ no longer exists.
-    expect(await ui.find({ type: 'Text', text: /1 unmapped, 1 missing section/ })).toBeDefined()
-    if (surface === 'terminal') {
-      // The legend: one entry per line, "orange" drawn in orange.
-      expect((await ui.find({ type: 'Text', text: /^orange$/ }))?.props).toMatchObject({ color: 'claude' })
-      expect(await ui.find({ type: 'Text', text: /^▼ depends on$/ })).toBeDefined()
-    }
-    await ui.unmount()
+  const ui = await $.ui.mount({ plugin: 'minimap', surface: 'terminal', ...PANE })
+  for (const label of ['API', 'Database', 'Legacy']) {
+    expect(await ui.find({ type: 'Text', text: new RegExp(`^${label}$`) })).toBeDefined()
   }
+  // scripts/ is covered by no section; legacy/ no longer exists.
+  expect(await ui.find({ type: 'Text', text: /1 unmapped, 1 missing section/ })).toBeDefined()
+  // The legend: one entry per line, "orange" drawn in orange.
+  expect((await ui.find({ type: 'Text', text: /^orange$/ }))?.props).toMatchObject({ color: 'claude' })
+  expect(await ui.find({ type: 'Text', text: /^▼ depends on$/ })).toBeDefined()
+  await ui.unmount()
 })
 
 test('an invalid map shows the error instead of a graph', async ($, on) => {

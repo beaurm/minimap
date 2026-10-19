@@ -9,7 +9,6 @@ import {
 } from './graph'
 import { layoutMap } from './layout'
 import { initPrompt, updatePrompt } from './prompts'
-import { svgMap } from './svg'
 import { brokenPane, emptyPane, invalidPane, legend, mapStatus, paneHeader, terminalMap } from './terminal'
 import type { PaneView } from './terminal'
 import {
@@ -326,24 +325,6 @@ export const register: Register = on => {
         drift: await readDrift($),
       }
       const { Box } = els
-
-      if (e.surface !== 'terminal' && e.surface !== 'vscode') {
-        const { Svg } = $.ui.resolve(e)
-        return (
-          <Box flexDirection="column" gap={1} padding={1}>
-            {paneHeader(els, view)}
-            <Box flexDirection="column" alignItems="center" gap={1}>
-              <Svg
-                source={svgMap(map, view.layout, view.lit, t.touches)}
-                alt={`Minimap: ${map.sections.map(s => s.label).join(', ')}`}
-                isInteractive
-              />
-              {mapStatus(els, view)}
-            </Box>
-            {legend(els)}
-          </Box>
-        )
-      }
 
       return (
         <Box flexDirection="column" paddingX={1}>
