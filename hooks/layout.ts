@@ -29,10 +29,13 @@ export type Layout = {
 
 const MAX_BOX_W = 18
 const MIN_BOX_W = 10
+/** A box's border and padding: a label needs this many columns more than its own length. */
+const BOX_CHROME = 4
 const GAP = 2
 
 /**
- * Longest-path layers: a section sits one layer below everything it is used by.
+ * Longest-path layers: a section sits one layer below everything it is used by,
+ * and no higher than it has to above what it uses.
  * Edges that would close a cycle are ignored for layering (they still draw if
  * they point downward).
  */
@@ -49,6 +52,16 @@ function assignLayers(map: ProjectMap): Map<string, number> {
       }
     }
     if (!changed) break
+  }
+
+  // Then pull each section down to just above the highest section it uses: one
+  // that nothing uses (a tool that only reads the logs) sits beside its target
+  // instead of on the top row. Lowest first, so a section sees its targets settled.
+  const downward = map.edges.filter(([from, to]) => layer.get(to)! > layer.get(from)!)
+  const order = [...map.sections].sort((a, b) => layer.get(b.id)! - layer.get(a.id)!)
+  for (const { id } of order) {
+    const targets = downward.filter(([from]) => from === id).map(([, to]) => layer.get(to)!)
+    if (targets.length) layer.set(id, Math.min(...targets) - 1)
   }
   return layer
 }
@@ -84,7 +97,7 @@ export function displayEdges(edges: [string, string][]): [string, string][] {
 const layouts = new Map<string, Layout>()
 const KEPT_LAYOUTS = 4
 
-/** Lays the map out in rows that fit `columns` where they can (boxes shrink to MIN_BOX_W). */
+/** Lays the map out in rows that fit `columns` where they can, its labels whole where they can. */
 export function layoutMap(map: ProjectMap, columns: number): Layout {
   const key = `${columns} ${JSON.stringify(map)}`
   const kept = layouts.get(key)
@@ -98,17 +111,24 @@ export function layoutMap(map: ProjectMap, columns: number): Layout {
 function computeLayout(map: ProjectMap, columns: number): Layout {
   const edges = displayEdges(map.edges)
   const layerOf = assignLayers({ ...map, edges })
+  // Boxes never get narrower than the longest label needs: a wrapped row reads
+  // better than a cut-off name. Only a pane too narrow for even one such box
+  // shrinks the boxes (and cuts the labels).
+  const longest = Math.max(0, ...map.sections.map(s => s.label.length))
+  const readable = Math.max(MIN_BOX_W, longest + BOX_CHROME)
+
   // Each layer on one row first; while that is wider than the pane, wrap the
   // layers into rows of fewer boxes, in the order the one-row layout settled on.
-  const first = place(map, edges, layerOf, columns, Infinity)
+  const first = place(map, edges, layerOf, columns, Infinity, readable)
   if (first.width <= columns) return first
   const rank = new Map<string, number>()
   for (const row of first.layers) row.forEach((slot, i) => rank.set(slot.id, i))
   for (let perRow = Math.max(...first.layers.map(row => row.length)) - 1; perRow >= 1; perRow--) {
-    const layout = place(map, edges, layerOf, columns, perRow, rank)
-    if (layout.width <= columns || perRow === 1) return layout
+    const layout = place(map, edges, layerOf, columns, perRow, readable, rank)
+    if (layout.width <= columns) return layout
   }
-  return first
+  // One box per row still doesn't fit: let the boxes shrink after all.
+  return place(map, edges, layerOf, columns, 1, MIN_BOX_W, rank)
 }
 
 type Item = { id: string; kind: Slot['kind'] }
@@ -116,7 +136,8 @@ type Item = { id: string; kind: Slot['kind'] }
 /**
  * Lays the map out with at most `perRow` boxes on a row: a layer with more
  * takes several rows, and an edge into a later row passes the rows between
- * through lanes, as an edge skipping layers does.
+ * through lanes, as an edge skipping layers does. Boxes are at least `minW`
+ * wide, and at most MAX_BOX_W unless a label needs more.
  */
 function place(
   map: ProjectMap,
@@ -124,6 +145,7 @@ function place(
   layerOf: Map<string, number>,
   columns: number,
   perRow: number,
+  minW: number,
   rank?: Map<string, number>,
 ): Layout {
   const depth = Math.max(0, ...layerOf.values()) + 1
@@ -179,11 +201,11 @@ function place(
     row.reduce((sum, item) => sum + (item.kind === 'box' ? boxW : 1), 0) + GAP * Math.max(0, row.length - 1)
   const fitW = (row: Item[]) => {
     const boxes = row.filter(i => i.kind === 'box').length
-    if (boxes === 0) return MAX_BOX_W
+    if (boxes === 0) return Infinity
     const fixed = row.length - boxes + GAP * Math.max(0, row.length - 1)
     return Math.floor((columns - fixed) / boxes)
   }
-  const boxW = Math.max(MIN_BOX_W, Math.min(MAX_BOX_W, ...rows.map(fitW)))
+  const boxW = Math.max(minW, Math.min(Math.max(MAX_BOX_W, minW), ...rows.map(fitW)))
   const width = Math.max(...rows.map(r => rowWidth(r, boxW)))
 
   const slots = new Map<string, Slot>()

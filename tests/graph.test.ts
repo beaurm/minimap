@@ -67,13 +67,28 @@ describe('parseMap', () => {
 })
 
 describe('layoutMap', () => {
-  test('layers follow the edges, and a skipped layer gets a lane', () => {
-    // docs → core skips the API layer and nothing else implies it, so it keeps its own line.
-    const map: ProjectMap = { ...MAP, edges: [['ui', 'api'], ['api', 'core'], ['docs', 'core']] }
+  test('a section that uses only something deep sits right above it, not on the top row', () => {
+    // As in a real map: the peer tracker only reads the logs, at the bottom.
+    const map: ProjectMap = {
+      version: 1,
+      sections: ['launchers', 'monitor', 'node', 'logs', 'tracker'].map(id => ({ id, label: id, paths: [id] })),
+      edges: [['launchers', 'monitor'], ['monitor', 'node'], ['node', 'logs'], ['tracker', 'logs']],
+    }
+    const rowOf = (id: string) => layoutMap(map, 80).slots.get(id)!.layer
+    expect(rowOf('tracker')).toBe(rowOf('logs') - 1)
+    expect(rowOf('launchers')).toBe(0)
+  })
+  test('an edge that has to skip a layer passes it through a lane', () => {
+    // x uses w (one layer down) and c (two down), so x stays on top and x → c skips a layer.
+    const map: ProjectMap = {
+      version: 1,
+      sections: ['v', 'u', 'x', 'w', 'k', 'c'].map(id => ({ id, label: id, paths: [id] })),
+      edges: [['v', 'w'], ['u', 'k'], ['k', 'c'], ['x', 'w'], ['x', 'c']],
+    }
     const layout = layoutMap(map, 80)
-    expect(layout.layers.map(row => row.filter(s => s.kind === 'box').map(s => s.id))).toEqual([['ui', 'docs'], ['api'], ['core']])
+    expect(layout.slots.get('x')!.layer).toBe(0)
     expect(layout.layers[1]!.some(s => s.kind === 'lane')).toBe(true)
-    expect(layout.segments.filter(s => s.edge[0] === 'docs')).toHaveLength(2)
+    expect(layout.segments.filter(s => s.edge[0] === 'x' && s.edge[1] === 'c')).toHaveLength(2)
   })
   test('an edge a longer path already implies is not drawn', () => {
     // ui → core is implied by ui → api → core.
@@ -104,6 +119,23 @@ describe('layoutMap', () => {
     for (const id of lower) expect(layout.segments.filter(s => s.edge[1] === id)).toHaveLength(2)
     // Wide enough, the layer stays one row.
     expect(layoutMap(map, 200).layers.map(row => row.length)).toEqual([1, 6])
+  })
+  test('boxes stay wide enough for the longest label, wrapping rows instead; only a pane too narrow for one box cuts labels', () => {
+    const names = ['Authentication', 'Billing', 'Search Index', 'Notifications', 'Background Jobs', 'Admin']
+    const map: ProjectMap = {
+      version: 1,
+      sections: [{ id: 'app', label: 'Web App', paths: ['app'] }, ...names.map((label, i) => ({ id: `s${i}`, label, paths: [`s${i}`] }))],
+      edges: names.map((_, i) => ['app', `s${i}`] as [string, string]),
+    }
+    // "Background Jobs" is 15 characters: a box needs 19 columns to show it whole.
+    const layout = layoutMap(map, 60)
+    expect(layout.boxW).toBeGreaterThanOrEqual(19)
+    expect(layout.width).toBeLessThanOrEqual(60)
+    expect(layout.layers.length).toBeGreaterThan(2)
+    // A pane too narrow for one such box (with the lines passing beside it): the boxes shrink to fit after all.
+    const narrow = layoutMap(map, 30)
+    expect(narrow.width).toBeLessThanOrEqual(30)
+    expect(narrow.boxW).toBeLessThan(19)
   })
   test('a cycle does not hang the layout', () => {
     const cyclic: ProjectMap = { ...MAP, edges: [['ui', 'api'], ['api', 'ui']] }
