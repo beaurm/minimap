@@ -1,6 +1,10 @@
 import type { MapSection, ProjectMap } from '../types'
 
-export const MAP_PATH = 'claude-nodes.json'
+export const MAP_PATH = 'minimap.json'
+/** The map file's names under the plugin's earlier names: read when a repo has no minimap.json yet. */
+export const LEGACY_MAP_PATHS = ['claude-nodes.json']
+/** Whether a repo-relative path is the map file, under its current name or an earlier one. */
+export const isMapFile = (path: string) => path === MAP_PATH || LEGACY_MAP_PATHS.includes(path)
 
 // Top-level folders that are never project sections, so never drift.
 const IGNORED_DIRS = new Set([

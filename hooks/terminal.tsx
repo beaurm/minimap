@@ -27,12 +27,12 @@ export type PaneView = {
 
 const BOX_ROWS = 4
 
-export function invalidPane({ Box, Text }: Els, error: string): RenderElement {
+export function invalidPane({ Box, Text }: Els, error: string, file: string): RenderElement {
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Text color="error">{MAP_PATH} is invalid</Text>
+      <Text color="error">{file} is invalid</Text>
       <Text dimColor>{error}</Text>
-      <Text dimColor>Fix it, then run /claude-nodes reload.</Text>
+      <Text dimColor>Fix it, then run /minimap reload.</Text>
     </Box>
   )
 }
@@ -41,8 +41,8 @@ export function emptyPane({ Box, Text }: Els): RenderElement {
   return (
     <Box flexDirection="column" paddingX={1}>
       <Text bold>No map yet.</Text>
-      <Text dimColor>Run /claude-nodes init to have Claude map this repo (uses tokens).</Text>
-      <Text dimColor>Or write {MAP_PATH} by hand, then /claude-nodes reload.</Text>
+      <Text dimColor>Run /minimap init to have Claude map this repo (uses tokens).</Text>
+      <Text dimColor>Or write {MAP_PATH} by hand, then /minimap reload.</Text>
     </Box>
   )
 }
@@ -52,7 +52,7 @@ export function brokenPane({ Box, Text }: Els, err: unknown): RenderElement {
     <Box flexDirection="column" paddingX={1}>
       <Text color="error">The project map hit an error while drawing.</Text>
       <Text dimColor>{err instanceof Error ? err.message : String(err)}</Text>
-      <Text dimColor>Run /claude-nodes reload; if it persists, please report it.</Text>
+      <Text dimColor>Run /minimap reload; if it persists, please report it.</Text>
     </Box>
   )
 }
@@ -129,7 +129,7 @@ export function mapStatus({ Box, Text }: Els, { drift }: PaneView): RenderElemen
         {[...unmapped, ...missing.map(id => `${id} (gone)`)].slice(0, 4).join(', ')}
         {unmapped.length + missing.length > 4 ? ', …' : ''}
       </Text>
-      <Text dimColor>Run /claude-nodes update to fix it (uses tokens).</Text>
+      <Text dimColor>Run /minimap update to fix it (uses tokens).</Text>
     </Box>
   )
 }

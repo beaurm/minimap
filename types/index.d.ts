@@ -7,7 +7,7 @@ export type MapSection = {
   paths: string[]
 }
 
-/** The contents of `claude-nodes.json`. Edges read "from depends on to". */
+/** The contents of `minimap.json`. Edges read "from depends on to". */
 export type ProjectMap = {
   version: 1
   sections: MapSection[]
@@ -49,7 +49,7 @@ export type MapTracking = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'claude-nodes': {
+    'minimap': {
       /** The loaded map; null when the repo has none (or it failed to load). */
       graph: ProjectMap | null
       /** Why the map file could not be loaded; null when it loaded or is absent. */
@@ -66,6 +66,10 @@ declare module 'claude-code' {
       isPaneOpen: boolean
       /** The section the pane last scrolled to, so it only follows Claude when the section changes. */
       followed: string | null
+      /** The map file in use: minimap.json, or an earlier name a repo still has. */
+      mapFile: string
+      /** The map file's modification time when it was last loaded; null when there was no file. */
+      mapStamp: number | null
     }
   }
 }

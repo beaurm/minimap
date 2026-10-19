@@ -1,4 +1,4 @@
-/** What `/claude-nodes init` and `update` ask Claude: the only token spend. */
+/** What `/minimap init` and `update` ask Claude: the only token spend. */
 import type { ProjectMap } from '../types'
 import { MAP_PATH } from './graph'
 
@@ -18,7 +18,7 @@ const RULES = `Rules for the file:
 - No positions or layout: the plugin computes those.`
 
 export function initPrompt(): string {
-  return `Create the project map for the claude-nodes plugin.
+  return `Create the project map for the minimap plugin.
 
 Explore this repository's structure (folders, entry points, and imports where needed to tell what depends on what; don't read every file), then write \`${MAP_PATH}\` in exactly this JSON shape:
 
@@ -31,12 +31,13 @@ ${RULES}
 Write only that file, then reply with a one-line summary of the sections.`
 }
 
-export function updatePrompt(map: ProjectMap, drift: { unmapped: string[]; missing: string[] }): string {
+/** `file` is the map file in use: a repo may still have it under an earlier name. */
+export function updatePrompt(map: ProjectMap, drift: { unmapped: string[]; missing: string[] }, file: string): string {
   const lines = [
     drift.unmapped.length ? `- Not covered by any section: ${drift.unmapped.join(', ')}` : '',
     drift.missing.length ? `- Sections whose folders no longer exist: ${drift.missing.join(', ')}` : '',
   ].filter(Boolean)
-  return `Update the project map at \`${MAP_PATH}\`; the project has changed since it was written.
+  return `Update the project map at \`${file}\`; the project has changed since it was written.
 
 Current file:
 

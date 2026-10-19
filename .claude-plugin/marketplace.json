@@ -1,14 +1,14 @@
 {
-  "name": "claude-nodes",
+  "name": "minimap",
   "owner": {
     "name": "beaurm"
   },
   "plugins": [
     {
-      "name": "claude-nodes",
+      "name": "minimap",
       "source": "./",
       "description": "A live map of your project in a side pane: its sections, how they depend on each other, and where Claude is working right now"
     }
   ],
-  "description": "claude-nodes: a live, high-level map of your project for Claude Code"
+  "description": "minimap: a live, high-level map of your project for Claude Code"
 }

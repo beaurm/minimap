@@ -5,7 +5,7 @@ import type { MapActivity, ProjectMap } from '../types'
 import { actionOf, fileArg, locate } from './activity'
 import type { TrackedTool } from './activity'
 import {
-  MAP_PATH, isTracked, parseMap, relativeTo, sectionDirs, sectionOf, unmappedTopDirs,
+  LEGACY_MAP_PATHS, MAP_PATH, isMapFile, isTracked, parseMap, relativeTo, sectionDirs, sectionOf, unmappedTopDirs,
 } from './graph'
 import { layoutMap } from './layout'
 import { initPrompt, updatePrompt } from './prompts'
@@ -16,17 +16,19 @@ import {
   EMPTY_TRACKING, MAIN, endCall, endTurn, highlightOf, sanitize, startCall, startTurn,
 } from './tracking'
 
-const PANE = 'claude-nodes'
-const TITLE = 'Claude Nodes'
+const PANE = 'minimap'
+const TITLE = 'Minimap'
 
-const graph = atom({ plugin: 'claude-nodes', key: 'graph' } as const, null)
-const loadError = atom({ plugin: 'claude-nodes', key: 'error' } as const, null)
-const unmappedDirs = atom({ plugin: 'claude-nodes', key: 'unmappedDirs' } as const, [])
-const unmappedFiles = atom({ plugin: 'claude-nodes', key: 'unmappedFiles' } as const, [])
-const missing = atom({ plugin: 'claude-nodes', key: 'missing' } as const, [])
-const tracking = atom({ plugin: 'claude-nodes', key: 'tracking' } as const, EMPTY_TRACKING)
-const isPaneOpen = atom({ plugin: 'claude-nodes', key: 'isPaneOpen' } as const, false)
-const followed = atom({ plugin: 'claude-nodes', key: 'followed' } as const, null)
+const graph = atom({ plugin: 'minimap', key: 'graph' } as const, null)
+const loadError = atom({ plugin: 'minimap', key: 'error' } as const, null)
+const unmappedDirs = atom({ plugin: 'minimap', key: 'unmappedDirs' } as const, [])
+const unmappedFiles = atom({ plugin: 'minimap', key: 'unmappedFiles' } as const, [])
+const missing = atom({ plugin: 'minimap', key: 'missing' } as const, [])
+const tracking = atom({ plugin: 'minimap', key: 'tracking' } as const, EMPTY_TRACKING)
+const isPaneOpen = atom({ plugin: 'minimap', key: 'isPaneOpen' } as const, false)
+const followed = atom({ plugin: 'minimap', key: 'followed' } as const, null)
+const mapStamp = atom({ plugin: 'minimap', key: 'mapStamp' } as const, null)
+const mapFile = atom({ plugin: 'minimap', key: 'mapFile' } as const, MAP_PATH)
 
 /** The store key remembering, across sessions, that the person closed the pane. */
 const CLOSED_KEY = 'paneClosed'
@@ -41,9 +43,12 @@ const readTracking = async ($: EngineInterface) => sanitize(await read($, tracki
 async function loadMap($: EngineInterface) {
   let map: ProjectMap | null = null
   let error: string | null = null
+  let stamp: number | null = null
+  const file = await findMapFile($)
   try {
-    if (await $.fs.exists(MAP_PATH)) {
-      const parsed = parseMap(await $.fs.read(MAP_PATH))
+    stamp = await stampOf($, file)
+    if (stamp !== null) {
+      const parsed = parseMap(await $.fs.read(file))
       if ('map' in parsed) map = parsed.map
       else error = parsed.error
     }
@@ -52,7 +57,37 @@ async function loadMap($: EngineInterface) {
   }
   await update($, graph, () => map)
   await update($, loadError, () => error)
+  await update($, mapStamp, () => stamp)
+  await update($, mapFile, () => file)
   await scanDrift($, map)
+}
+
+/** The map file to read: minimap.json, else an earlier name the repo still has, else minimap.json. */
+async function findMapFile($: EngineInterface): Promise<string> {
+  for (const file of [MAP_PATH, ...LEGACY_MAP_PATHS]) if (await $.fs.exists(file)) return file
+  return MAP_PATH
+}
+
+/**
+ * The map file's modification time, or null when there is none. NaN when the
+ * time can't be read: NaN equals nothing, so the map then reloads every turn.
+ */
+async function stampOf($: EngineInterface, file: string): Promise<number | null> {
+  if (!(await $.fs.exists(file))) return null
+  return $.fs.stat(file).then(
+    stat => stat.mtimeMs,
+    () => NaN,
+  )
+}
+
+/**
+ * Reloads the map when its file changed since it was loaded, however it
+ * changed: Claude's Edit or Write (caught at once), a script it ran, the
+ * person's editor, a git pull.
+ */
+async function reloadIfChanged($: EngineInterface) {
+  const file = await findMapFile($)
+  if (file !== (await read($, mapFile)) || (await stampOf($, file)) !== (await read($, mapStamp))) await loadMap($)
 }
 
 /**
@@ -92,14 +127,14 @@ async function readDrift($: EngineInterface) {
 async function trackWrite($: EngineInterface, path: string) {
   const rel = relativeTo(await $.session.cwd(), path)
   if (rel === undefined) return
-  if (rel === MAP_PATH) return loadMap($)
+  if (isMapFile(rel)) return loadMap($)
   await noteUnmapped($, rel)
 }
 
 /** Notes a repo file (read or written) that no section owns: the map is missing it. */
 async function noteUnmapped($: EngineInterface, rel: string) {
   const map = await read($, graph)
-  if (!map || rel === MAP_PATH || !isTracked(rel) || sectionOf(map, rel)) return
+  if (!map || isMapFile(rel) || !isTracked(rel) || sectionOf(map, rel)) return
   await update($, unmappedFiles, list => (list.includes(rel) ? list : [...list, rel].slice(-MAX_UNMAPPED)))
 }
 
@@ -139,7 +174,7 @@ async function openPane($: EngineInterface, asked: boolean) {
 
 /** While the pane is closed, a line under the prompt says how to bring it back. */
 function showClosedHint($: EngineInterface, isClosed: boolean) {
-  $.ui.status(isClosed ? 'pane closed · /claude-nodes to reopen' : undefined)
+  $.ui.status(isClosed ? 'pane closed · /minimap to reopen' : undefined)
 }
 
 /** After a /clear: the map, and whether the pane is still up, into the new session's state. */
@@ -160,16 +195,16 @@ function queuePrompt($: EngineInterface, text: string) {
 
 // ── Hooks ────────────────────────────────────────────────────────────────────
 
-const HELP = `/claude-nodes            open the pane
-/claude-nodes init       ask Claude to map this repo (uses tokens)
-/claude-nodes update     ask Claude to bring the map up to date (uses tokens)
-/claude-nodes reload     re-read ${MAP_PATH} after editing it by hand`
+const HELP = `/minimap            open the pane
+/minimap init       ask Claude to map this repo (uses tokens)
+/minimap update     ask Claude to bring the map up to date (uses tokens)
+/minimap reload     re-read ${MAP_PATH} after editing it by hand`
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
-      name: 'claude-nodes',
-      description: 'Claude Nodes: open, or init | update | reload',
+      name: 'minimap',
+      description: 'Minimap: open, or init | update | reload',
     })
     await loadMap($)
     // Drop what an older version of the module may have left in the session's state.
@@ -192,28 +227,28 @@ export const register: Register = on => {
     return ended
   })
 
-  on('command.run', { command: 'claude-nodes' }, async ($, e) => {
+  on('command.run', { command: 'minimap' }, async ($, e) => {
     const sub = e.args.trim()
     const map = await read($, graph)
 
     if (sub === '') {
       await openPane($, true)
-      return { text: 'Claude Nodes opened.' }
+      return { text: 'Minimap opened.' }
     }
     if (sub === 'reload') {
       await loadMap($)
       const error = await read($, loadError)
-      if (error) return { text: `${MAP_PATH} is invalid: ${error}` }
-      return { text: (await read($, graph)) ? 'Claude Nodes reloaded.' : `No ${MAP_PATH} found.` }
+      if (error) return { text: `${await read($, mapFile)} is invalid: ${error}` }
+      return { text: (await read($, graph)) ? 'Minimap reloaded.' : `No ${MAP_PATH} found.` }
     }
     if (sub === 'init') {
-      if (map) return { text: `This repo already has ${MAP_PATH}. Use /claude-nodes update, or delete the file to start over.` }
+      if (map) return { text: `This repo already has ${await read($, mapFile)}. Use /minimap update, or delete the file to start over.` }
       queuePrompt($, initPrompt())
       return { text: 'Asked Claude to map this repo.' }
     }
     if (sub === 'update') {
-      if (!map) return { text: `No map yet: run /claude-nodes init first.` }
-      queuePrompt($, updatePrompt(map, await readDrift($)))
+      if (!map) return { text: `No map yet: run /minimap init first.` }
+      queuePrompt($, updatePrompt(map, await readDrift($), await read($, mapFile)))
       return { text: 'Asked Claude to update the project map.' }
     }
 
@@ -248,8 +283,8 @@ export const register: Register = on => {
   // A main turn opens the trail afresh; a subagent's activity ends with its own turn.
   on('turn.start', async ($, e, next) => {
     if (!e.agentId) {
-      // A map never loaded into this session (a /clear, a file made meanwhile): load it now.
-      if (!(await read($, graph)) && !(await read($, loadError))) await loadMap($).catch(() => {})
+      // The map file changed since it was loaded, or never loaded into this session (a /clear).
+      await reloadIfChanged($).catch(() => {})
       await update($, tracking, t => startTurn(sanitize(t)))
       await update($, followed, () => null)
     }
@@ -258,10 +293,12 @@ export const register: Register = on => {
 
   on('turn.complete', async ($, e, next) => {
     await update($, tracking, t => endTurn(sanitize(t), e.agentId ?? MAIN))
+    // A turn may have changed the map file without Claude's file tools (a script, a command).
+    if (!e.agentId) await reloadIfChanged($).catch(() => {})
     return next(e)
   })
 
-  // The x closes the pane for good: later sessions keep it closed until /claude-nodes.
+  // The x closes the pane for good: later sessions keep it closed until /minimap.
   on('ui.close', { id: PANE }, async ($, e, next) => {
     const closed = await next(e)
     await update($, isPaneOpen, () => false)
@@ -276,7 +313,7 @@ export const register: Register = on => {
     try {
       const map = await read($, graph)
       const error = await read($, loadError)
-      if (error) return invalidPane(els, error)
+      if (error) return invalidPane(els, error, await read($, mapFile))
       if (!map) return emptyPane(els)
 
       const t = await readTracking($)
@@ -298,7 +335,7 @@ export const register: Register = on => {
             <Box flexDirection="column" alignItems="center" gap={1}>
               <Svg
                 source={svgMap(map, view.layout, view.lit, t.touches)}
-                alt={`Claude Nodes: ${map.sections.map(s => s.label).join(', ')}`}
+                alt={`Minimap: ${map.sections.map(s => s.label).join(', ')}`}
                 isInteractive
               />
               {mapStatus(els, view)}

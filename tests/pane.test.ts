@@ -13,20 +13,20 @@ const MAP = {
 }
 
 const PROPS = {
-  title: 'Claude Nodes',
+  title: 'Minimap',
   isFocused: false,
   bodyColumns: 60,
   placement: 'dock',
   scroll: { offset: 0, bodyRows: 30 },
   view: {},
 } as const
-const PANE = { component: 'Pane', props: PROPS, requestId: 'claude-nodes' } as const
+const PANE = { component: 'Pane', props: PROPS, requestId: 'minimap' } as const
 
 /**
  * A fake repo: the files the plugin may read, and its folders. The engine
  * hands these hooks absolute paths, so a key matches as a path suffix.
  */
-function fakeRepo(on: On, files: Record<string, string>, dirs: string[]) {
+function fakeRepo(on: On, files: Record<string, string>, dirs: string[], stamps: Record<string, number> = {}) {
   const is = (path: string, key: string) => path === key || path.endsWith(`/${key}`)
   const file = (path: string) => Object.keys(files).find(key => is(path, key))
   const exists = (path: string) => file(path) !== undefined || dirs.some(d => is(path, d))
@@ -35,16 +35,17 @@ function fakeRepo(on: On, files: Record<string, string>, dirs: string[]) {
     const key = file(e.path)
     return key ? { value: files[key]! } : { deny: `ENOENT: ${e.path}` }
   })
+  on('fs.stat', async (_, e) => ({ value: { kind: 'file', size: 0, mtimeMs: stamps[file(e.path) ?? ''] ?? 1, isLink: false } }) as never)
   on('fs.list', async () => ({
     value: [...new Set(dirs.map(d => d.split('/')[0]!))].map(name => ({ name, kind: 'dir' as const, size: 0, mtimeMs: 0, isLink: false })),
   }))
   on('session.cwd', async () => ({ value: '/repo' }))
 }
 
-/** Runs `/claude-nodes <args>` as the person would. */
+/** Runs `/minimap <args>` as the person would. */
 const run = ($: Engine, args: string) =>
   $.command.run({
-    command: 'claude-nodes',
+    command: 'minimap',
     args,
     origin: { kind: 'composer' },
     presentation: { isFullscreen: true, columns: 80 },
@@ -53,16 +54,16 @@ const run = ($: Engine, args: string) =>
 test('no map: the pane says how to make one', async ($, on) => {
   fakeRepo(on, {}, ['src'])
   await run($, 'reload')
-  const ui = await $.ui.mount({ plugin: 'claude-nodes', surface: 'terminal', ...PANE })
+  const ui = await $.ui.mount({ plugin: 'minimap', surface: 'terminal', ...PANE })
   expect(await ui.find({ type: 'Text', text: /No map yet/ })).toBeDefined()
   await ui.unmount()
 })
 
 test('a map draws its sections and reports drift', async ($, on) => {
-  fakeRepo(on, { 'claude-nodes.json': JSON.stringify(MAP) }, ['src/api', 'src/db', 'scripts'])
+  fakeRepo(on, { 'minimap.json': JSON.stringify(MAP) }, ['src/api', 'src/db', 'scripts'])
   await run($, 'reload')
   for (const surface of ['terminal', 'desktop'] as const) {
-    const ui = await $.ui.mount({ plugin: 'claude-nodes', surface, ...PANE })
+    const ui = await $.ui.mount({ plugin: 'minimap', surface, ...PANE })
     if (surface === 'terminal') {
       for (const label of ['API', 'Database', 'Legacy']) {
         expect(await ui.find({ type: 'Text', text: new RegExp(`^${label}$`) })).toBeDefined()
@@ -82,9 +83,9 @@ test('a map draws its sections and reports drift', async ($, on) => {
 })
 
 test('an invalid map shows the error instead of a graph', async ($, on) => {
-  fakeRepo(on, { 'claude-nodes.json': '{"sections": []}' }, ['src'])
+  fakeRepo(on, { 'minimap.json': '{"sections": []}' }, ['src'])
   await run($, 'reload')
-  const ui = await $.ui.mount({ plugin: 'claude-nodes', surface: 'terminal', ...PANE })
+  const ui = await $.ui.mount({ plugin: 'minimap', surface: 'terminal', ...PANE })
   expect(await ui.find({ type: 'Text', text: /non-empty array/ })).toBeDefined()
   await ui.unmount()
 })
@@ -101,12 +102,12 @@ test('init asks Claude only when there is no map yet', async ($, on) => {
   await run($, 'init')
   await clock.advance(10)
   expect(prompts).toHaveLength(1)
-  expect(prompts[0]).toContain('claude-nodes.json')
+  expect(prompts[0]).toContain('minimap.json')
 })
 
 test('a tool call lights up its section, and the turn ending leaves a trail', async ($, on) => {
   mock.clock(on)
-  fakeRepo(on, { 'claude-nodes.json': JSON.stringify(MAP) }, ['src/api', 'src/db'])
+  fakeRepo(on, { 'minimap.json': JSON.stringify(MAP) }, ['src/api', 'src/db'])
   on('tool.call', async () => ({ result: { ok: true } }) as never)
   on('turn.start', async (_, e) => ({ turnId: e.turnId }) as never)
   on('turn.complete', async () => ({ text: '' }) as never)
@@ -115,7 +116,7 @@ test('a tool call lights up its section, and the turn ending leaves a trail', as
   await $.turn.start({ text: 'fix the api', turnId: 't1' } as never)
   await $.tool.call({ tool: 'Edit', tool_use_id: 'u1', file_path: '/repo/src/api/routes.ts', old_string: 'a', new_string: 'b' } as never)
 
-  const ui = await $.ui.mount({ plugin: 'claude-nodes', surface: 'terminal', ...PANE })
+  const ui = await $.ui.mount({ plugin: 'minimap', surface: 'terminal', ...PANE })
   expect(await ui.find({ type: 'Text', text: /^Editing$/ })).toBeDefined()
   // The active box shows the file it is on instead of its folder.
   expect(await ui.find({ type: 'Text', text: /^routes\.ts$/ })).toBeDefined()
@@ -124,7 +125,7 @@ test('a tool call lights up its section, and the turn ending leaves a trail', as
   await ui.unmount()
 
   await $.turn.complete({ turnId: 't1', answer: 'done', durationMs: 5, isAborted: false, reason: 'answer' } as never)
-  const after = await $.ui.mount({ plugin: 'claude-nodes', surface: 'terminal', ...PANE })
+  const after = await $.ui.mount({ plugin: 'minimap', surface: 'terminal', ...PANE })
   expect(await after.find({ type: 'Text', text: /Idle · last/ })).toBeDefined()
   // Off duty: no box is doubled, and the section it worked in stays dim orange.
   expect((await after.find({ key: 'box-api' }))?.props).toMatchObject({ borderStyle: 'round', borderColor: 'claude', borderDimColor: true })
@@ -133,33 +134,33 @@ test('a tool call lights up its section, and the turn ending leaves a trail', as
 
 test('a subagent shows on its own line and leaves when its turn ends', async ($, on) => {
   mock.clock(on)
-  fakeRepo(on, { 'claude-nodes.json': JSON.stringify(MAP) }, ['src/api', 'src/db'])
+  fakeRepo(on, { 'minimap.json': JSON.stringify(MAP) }, ['src/api', 'src/db'])
   on('tool.call', async () => ({ result: { ok: true } }) as never)
   on('turn.complete', async () => ({ text: '' }) as never)
   await run($, 'reload')
 
   await $.tool.call({ tool: 'Read', tool_use_id: 'u2', agentId: 'a1', file_path: '/repo/src/db/schema.sql' } as never)
-  const ui = await $.ui.mount({ plugin: 'claude-nodes', surface: 'terminal', ...PANE })
+  const ui = await $.ui.mount({ plugin: 'minimap', surface: 'terminal', ...PANE })
   expect(await ui.find({ type: 'Text', text: /^subagent $/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^schema\.sql$/ })).toBeDefined()
   await ui.unmount()
 
   await $.turn.complete({ agentId: 'a1', turnId: 't2', answer: '', durationMs: 5, isAborted: false, reason: 'answer' } as never)
-  const after = await $.ui.mount({ plugin: 'claude-nodes', surface: 'terminal', ...PANE })
+  const after = await $.ui.mount({ plugin: 'minimap', surface: 'terminal', ...PANE })
   expect(await after.find({ type: 'Text', text: /^subagent $/ })).toBeUndefined()
   await after.unmount()
 })
 
 test('reading a file no section owns marks the map out of date', async ($, on) => {
   mock.clock(on)
-  fakeRepo(on, { 'claude-nodes.json': JSON.stringify({ ...MAP, sections: MAP.sections.slice(0, 2) }) }, ['src/api', 'src/db'])
+  fakeRepo(on, { 'minimap.json': JSON.stringify({ ...MAP, sections: MAP.sections.slice(0, 2) }) }, ['src/api', 'src/db'])
   on('tool.call', async () => ({ result: { ok: true } }) as never)
   await run($, 'reload')
   await $.tool.call({ tool: 'Read', tool_use_id: 'u1', file_path: '/repo/src/jobs/queue.ts' } as never)
   // Hidden folders are not part of the map, so reading there is no drift.
   await $.tool.call({ tool: 'Read', tool_use_id: 'u2', file_path: '/repo/.github/ci.yml' } as never)
 
-  const ui = await $.ui.mount({ plugin: 'claude-nodes', surface: 'terminal', ...PANE })
+  const ui = await $.ui.mount({ plugin: 'minimap', surface: 'terminal', ...PANE })
   expect(await ui.find({ type: 'Text', text: /^Map out of date: 1 unmapped$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /src\/jobs\/queue\.ts/ })).toBeDefined()
   await ui.unmount()
@@ -167,7 +168,7 @@ test('reading a file no section owns marks the map out of date', async ($, on) =
 
 test('parallel commands over several files light every section they touch', async ($, on) => {
   mock.clock(on)
-  fakeRepo(on, { 'claude-nodes.json': JSON.stringify(MAP) }, ['src/api', 'src/db', 'legacy'])
+  fakeRepo(on, { 'minimap.json': JSON.stringify(MAP) }, ['src/api', 'src/db', 'legacy'])
   // Hold each call open until the test lets it finish, as a slow command would.
   const finish: (() => void)[] = []
   on('tool.call', () => new Promise(resolve => finish.push(() => resolve({ result: { ok: true } } as never))))
@@ -182,7 +183,7 @@ test('parallel commands over several files light every section they touch', asyn
   for (let i = 0; i < 1000 && finish.length < 2; i++) await Promise.resolve()
   expect(finish).toHaveLength(2)
 
-  const ui = await $.ui.mount({ plugin: 'claude-nodes', surface: 'terminal', ...PANE })
+  const ui = await $.ui.mount({ plugin: 'minimap', surface: 'terminal', ...PANE })
   for (const id of ['api', 'db', 'gone']) {
     expect((await ui.find({ key: `box-${id}` }))?.props).toMatchObject({ borderStyle: 'double' })
   }
@@ -193,7 +194,7 @@ test('parallel commands over several files light every section they touch', asyn
   // Once both finish, the latest call stays lit and the other becomes trail.
   for (const done of finish) done()
   await Promise.all([first, second])
-  const after = await $.ui.mount({ plugin: 'claude-nodes', surface: 'terminal', ...PANE })
+  const after = await $.ui.mount({ plugin: 'minimap', surface: 'terminal', ...PANE })
   expect((await after.find({ key: 'box-gone' }))?.props).toMatchObject({ borderStyle: 'double' })
   expect((await after.find({ key: 'box-api' }))?.props).toMatchObject({ borderStyle: 'round', borderColor: 'claude' })
   await after.unmount()
@@ -209,10 +210,10 @@ test('a session that starts with the pane closed says how to reopen it', async (
   })
   on('session.start', async (_, e) => e as never)
   mock.store(on, { paneClosed: true })
-  fakeRepo(on, { 'claude-nodes.json': JSON.stringify(MAP) }, ['src/api', 'src/db'])
+  fakeRepo(on, { 'minimap.json': JSON.stringify(MAP) }, ['src/api', 'src/db'])
 
   await $.session.start({ source: 'startup', cwd: '/repo' } as never)
-  expect(statuses.at(-1)).toBe('pane closed · /claude-nodes to reopen')
+  expect(statuses.at(-1)).toBe('pane closed · /minimap to reopen')
 
   await run($, '')
   expect(statuses.at(-1)).toBeUndefined()
@@ -222,24 +223,67 @@ test('after a /clear the map loads again without a session start', async ($, on)
   const clock = mock.clock(on)
   const statuses: (string | undefined)[] = []
   on('session.end', async (_, e) => ({ sessionId: e.sessionId }) as never)
-  on('ui.panes', async () => ({ value: [{ id: 'claude-nodes', title: 'Claude Nodes', isShown: true, isFocused: false, isPlaced: true }] }) as never)
+  on('ui.panes', async () => ({ value: [{ id: 'minimap', title: 'Minimap', isShown: true, isFocused: false, isPlaced: true }] }) as never)
   on('ui.status', async (_, e) => {
     statuses.push((e as { text?: string }).text)
     return { value: undefined } as never
   })
-  fakeRepo(on, { 'claude-nodes.json': JSON.stringify(MAP) }, ['src/api', 'src/db'])
+  fakeRepo(on, { 'minimap.json': JSON.stringify(MAP) }, ['src/api', 'src/db'])
 
   // A fresh session's state: nothing loaded, as the pane found it after /clear.
-  const before = await $.ui.mount({ plugin: 'claude-nodes', surface: 'terminal', ...PANE })
+  const before = await $.ui.mount({ plugin: 'minimap', surface: 'terminal', ...PANE })
   expect(await before.find({ type: 'Text', text: /No map yet/ })).toBeDefined()
   await before.unmount()
 
   await $.session.end({ reason: 'clear', sessionId: 's1', resume: { id: 's1' } } as never)
   await clock.advance(1)
 
-  const after = await $.ui.mount({ plugin: 'claude-nodes', surface: 'terminal', ...PANE })
+  const after = await $.ui.mount({ plugin: 'minimap', surface: 'terminal', ...PANE })
   expect(await after.find({ key: 'box-api' })).toBeDefined()
   await after.unmount()
   // The pane is still up, so no "pane closed" hint.
   expect(statuses.at(-1)).toBeUndefined()
+})
+
+test('a map changed without the file tools (a script, an editor) reloads when the turn ends', async ($, on) => {
+  mock.clock(on)
+  const files: Record<string, string> = { 'minimap.json': JSON.stringify({ ...MAP, sections: MAP.sections.slice(0, 2) }) }
+  const stamps: Record<string, number> = { 'minimap.json': 1 }
+  fakeRepo(on, files, ['src/api', 'src/db', 'scripts'], stamps)
+  on('turn.complete', async () => ({ text: '' }) as never)
+  await run($, 'reload')
+
+  const before = await $.ui.mount({ plugin: 'minimap', surface: 'terminal', ...PANE })
+  expect(await before.find({ type: 'Text', text: /^Map out of date: 1 unmapped$/ })).toBeDefined()
+  await before.unmount()
+
+  // What the update did in that repo: a Python script through Bash rewrote the file.
+  const updated = { ...MAP, sections: [...MAP.sections.slice(0, 2), { id: 'scripts', label: 'Scripts', paths: ['scripts/**'] }] }
+  files['minimap.json'] = JSON.stringify(updated)
+  stamps['minimap.json'] = 2
+  await $.turn.complete({ turnId: 't1', answer: '', durationMs: 1, isAborted: false, reason: 'answer' } as never)
+
+  const after = await $.ui.mount({ plugin: 'minimap', surface: 'terminal', ...PANE })
+  expect(await after.find({ key: 'box-scripts' })).toBeDefined()
+  expect(await after.find({ type: 'Text', text: /^Map up to date$/ })).toBeDefined()
+  await after.unmount()
+})
+
+test("a repo still on the old file name keeps its map, and update edits that file", async ($, on) => {
+  const clock = mock.clock(on)
+  const prompts: string[] = []
+  on('prompt.submit', async (_, e) => {
+    prompts.push(e.text)
+    return { drop: 'captured by the test' } as never
+  })
+  fakeRepo(on, { 'claude-nodes.json': JSON.stringify(MAP) }, ['src/api', 'src/db'])
+  await run($, 'reload')
+
+  const ui = await $.ui.mount({ plugin: 'minimap', surface: 'terminal', ...PANE })
+  expect(await ui.find({ key: 'box-api' })).toBeDefined()
+  await ui.unmount()
+
+  await run($, 'update')
+  await clock.advance(10)
+  expect(prompts[0]).toContain('Update the project map at `claude-nodes.json`')
 })
