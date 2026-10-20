@@ -1,5 +1,4 @@
 /** What `/minimap init` and `update` ask Claude: the only token spend. */
-import type { ProjectMap } from '../types'
 import { MAP_PATH } from './graph'
 
 const SCHEMA = `{
@@ -31,8 +30,12 @@ ${RULES}
 Write only that file, then reply with a one-line summary of the sections.`
 }
 
-/** `file` is the map file in use: a repo may still have it under an earlier name. */
-export function updatePrompt(map: ProjectMap, drift: { unmapped: string[]; missing: string[] }, file: string): string {
+/**
+ * `text` is the map file as it is on disk, not as the plugin parsed it, so
+ * Claude keeps whatever else the file holds. `file` is the map file in use:
+ * a repo may still have it under an earlier name.
+ */
+export function updatePrompt(text: string, drift: { unmapped: string[]; missing: string[] }, file: string): string {
   const lines = [
     drift.unmapped.length ? `- Not covered by any section: ${drift.unmapped.join(', ')}` : '',
     drift.missing.length ? `- Sections whose folders no longer exist: ${drift.missing.join(', ')}` : '',
@@ -42,7 +45,7 @@ export function updatePrompt(map: ProjectMap, drift: { unmapped: string[]; missi
 Current file:
 
 \`\`\`json
-${JSON.stringify(map, null, 2)}
+${text.trimEnd()}
 \`\`\`
 
 What the plugin detected:

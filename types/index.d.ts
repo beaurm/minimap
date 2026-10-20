@@ -64,6 +64,8 @@ declare module 'claude-code' {
       tracking: MapTracking
       /** Whether the map pane is open. */
       isPaneOpen: boolean
+      /** Why the last open left the pane undrawn: `width` (the terminal is too narrow), `surface` (nothing here draws panes), or null. */
+      paneWait: 'width' | 'surface' | null
       /** The section the pane last scrolled to, so it only follows Claude when the section changes. */
       followed: string | null
       /** The map file in use: minimap.json, or an earlier name a repo still has. */

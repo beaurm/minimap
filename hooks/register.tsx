@@ -25,6 +25,7 @@ const unmappedFiles = atom({ plugin: 'minimap', key: 'unmappedFiles' } as const,
 const missing = atom({ plugin: 'minimap', key: 'missing' } as const, [])
 const tracking = atom({ plugin: 'minimap', key: 'tracking' } as const, EMPTY_TRACKING)
 const isPaneOpen = atom({ plugin: 'minimap', key: 'isPaneOpen' } as const, false)
+const paneWait = atom({ plugin: 'minimap', key: 'paneWait' } as const, null)
 const followed = atom({ plugin: 'minimap', key: 'followed' } as const, null)
 const mapStamp = atom({ plugin: 'minimap', key: 'mapStamp' } as const, null)
 const mapFile = atom({ plugin: 'minimap', key: 'mapFile' } as const, MAP_PATH)
@@ -166,22 +167,37 @@ async function follow($: EngineInterface, section: string) {
 /** Opens the pane; `asked` when the person asked for it, which also undoes a remembered close. */
 async function openPane($: EngineInterface, asked: boolean) {
   const opened = await $.ui.open({ id: PANE, title: TITLE })
-  await update($, isPaneOpen, () => opened.isPlaced)
+  // Undrawn, Claude Code says why: under the width floor ("144 columns ...", a
+  // terminal to widen), or a surface that places no panes (the VS Code panel)
+  // or none at all ("no-surface", a -p run), where /minimap can't help.
+  const wait = opened.isPlaced ? null : /column/i.test(opened.reason) ? 'width' : 'surface'
+  await update($, paneWait, () => wait)
   if (asked) await $.store.set(CLOSED_KEY, false)
-  showClosedHint($, !opened.isPlaced)
+  await syncPane($)
+  return opened
 }
 
-/** While the pane is closed, a line under the prompt says how to bring it back. */
-function showClosedHint($: EngineInterface, isClosed: boolean) {
-  $.ui.status(isClosed ? 'pane closed · /minimap to reopen' : undefined)
+/**
+ * Asks Claude Code where the pane really stands, and says so under the prompt
+ * while it isn't showing. Opened unasked, a pane waits undrawn until the
+ * terminal is wide enough (144 columns, 110 once opened by hand), so "not
+ * showing" is either the person's close or that wait, and the two read
+ * differently. Run again at each turn, it catches a pane placed meanwhile.
+ */
+async function syncPane($: EngineInterface) {
+  const isPlaced = (await $.ui.panes()).some(pane => pane.id === PANE && pane.isPlaced)
+  await update($, isPaneOpen, () => isPlaced)
+  if (isPlaced) return $.ui.status(undefined)
+  // Where nothing draws panes, any hint would point at a command that can't help.
+  if ((await read($, paneWait)) === 'surface') return $.ui.status(undefined)
+  const isClosed = (await $.store.get(CLOSED_KEY)) === true
+  $.ui.status(isClosed ? 'pane closed · /minimap to reopen' : '/minimap to open the map')
 }
 
 /** After a /clear: the map, and whether the pane is still up, into the new session's state. */
 async function restoreAfterClear($: EngineInterface) {
   await loadMap($)
-  const pane = (await $.ui.panes()).find(p => p.id === PANE)
-  await update($, isPaneOpen, () => !!pane?.isPlaced)
-  showClosedHint($, !pane?.isPlaced)
+  await syncPane($)
 }
 
 /**
@@ -210,10 +226,9 @@ export const register: Register = on => {
     await update($, tracking, t => sanitize(t))
     await update($, followed, () => null)
     // The pane opens with each session, unless the person closed it last time.
-    if ((await $.store.get(CLOSED_KEY)) === true) {
-      await update($, isPaneOpen, () => false)
-      showClosedHint($, true)
-    } else void openPane($, false)
+    // Opening resolves at once, placed or waiting for a wider terminal, so the session waits for it.
+    if ((await $.store.get(CLOSED_KEY)) === true) await syncPane($).catch(() => {})
+    else await openPane($, false).catch(() => {})
 
     return next(e)
   })
@@ -231,8 +246,9 @@ export const register: Register = on => {
     const map = await read($, graph)
 
     if (sub === '') {
-      await openPane($, true)
-      return { text: 'Minimap opened.' }
+      const opened = await openPane($, true)
+      if (opened.isPlaced) return { text: 'Minimap opened.' }
+      return { text: 'This Claude Code surface can\'t show plugin panes. minimap needs Claude Code in a terminal (`claude`).' }
     }
     if (sub === 'reload') {
       await loadMap($)
@@ -247,7 +263,10 @@ export const register: Register = on => {
     }
     if (sub === 'update') {
       if (!map) return { text: `No map yet: run /minimap init first.` }
-      queuePrompt($, updatePrompt(map, await readDrift($), await read($, mapFile)))
+      const file = await read($, mapFile)
+      const text = await $.fs.read(file).catch(() => undefined)
+      if (text === undefined) return { text: `Could not read ${file}: run /minimap reload, then try again.` }
+      queuePrompt($, updatePrompt(text, await readDrift($), file))
       return { text: 'Asked Claude to update the project map.' }
     }
 
@@ -284,6 +303,8 @@ export const register: Register = on => {
     if (!e.agentId) {
       // The map file changed since it was loaded, or never loaded into this session (a /clear).
       await reloadIfChanged($).catch(() => {})
+      // A pane that waited for a wider terminal may be showing by now: follow it from here on.
+      await syncPane($).catch(() => {})
       await update($, tracking, t => startTurn(sanitize(t)))
       await update($, followed, () => null)
     }
@@ -300,9 +321,8 @@ export const register: Register = on => {
   // The x closes the pane for good: later sessions keep it closed until /minimap.
   on('ui.close', { id: PANE }, async ($, e, next) => {
     const closed = await next(e)
-    await update($, isPaneOpen, () => false)
     if (e.origin.kind === 'person') await $.store.set(CLOSED_KEY, true)
-    showClosedHint($, true)
+    await syncPane($)
     return closed
   })
 

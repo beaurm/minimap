@@ -59,7 +59,7 @@ Only `init` and `update` call Claude, and only when you run them. Everything els
 
 ### The pane
 
-- **Opening:** the pane opens at the start of each session.
+- **Opening:** the pane opens at the start of each session when the terminal is wide enough (Claude Code needs about 144 columns to open a pane by itself). In a narrower terminal, a line under the prompt says `/minimap to open the map`.
 - **Following Claude:** on a map taller than the pane, the pane scrolls to the section Claude moves to. It only moves when that section is off screen.
 - **Closing:** the `x` closes the pane, and it stays closed, even in new sessions, until you run `/minimap`. While it's closed, a reminder under the prompt shows that command.
 
@@ -104,6 +104,25 @@ Because sections are path patterns, new files in existing folders belong to thei
 - a section whose folders no longer exist.
 
 When something drifted, the pane says `Map out of date` and lists it. Run `/minimap update` when you want it fixed.
+
+## What minimap can access
+
+minimap runs as a hook on Claude's tool calls, so here is exactly what it does:
+
+- **Reads, never writes.** It reads `minimap.json`, lists your repo's top-level folders, and checks that your sections' folders still exist. It never writes or changes your files; only Claude writes `minimap.json`, when you run `init` or `update`.
+- **Watches, never interferes.** For each Read, Edit, Write, LSP or shell call, it looks at the file path or command to find the section. It never changes or blocks a call, and if tracking fails, the call goes through untouched.
+- **No network, no programs.** It makes no network requests and runs no commands of its own.
+- **Tokens only when you ask.** It never calls the model by itself. Only `/minimap init` and `/minimap update` send Claude a prompt.
+- **Keeps almost nothing.** Tracking lives in the session and is gone when it ends. The one thing kept across sessions is whether you closed the pane.
+
+You can check this yourself: `claude plugin validate .` in this repo lists every call the plugin makes.
+
+## Limitations
+
+- **Start Claude Code at the repo root.** minimap looks for `minimap.json` in the folder where the session starts, and reads paths from there. Started in a subfolder (or in one package of a monorepo), it finds no map.
+- **Plugin API changes.** minimap is built on Claude Code's plugin API, which is still in early access and may change between releases. A Claude Code update can break it. It is tested with Claude Code 2.1.299; older versions may not draw the pane.
+- **Windows is untested.** Paths are handled for Windows, but it hasn't been confirmed on a Windows machine yet.
+- **Wide characters in labels.** Box widths count characters, so labels with wide characters (Chinese, Japanese, Korean, emoji) can misalign their boxes.
 
 ## Uninstall
 

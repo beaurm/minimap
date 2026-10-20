@@ -54,7 +54,8 @@ export function parseMap(text: string): { map: ProjectMap } | { error: string } 
     }
     const [from, to] = edge as [string, string]
     for (const id of [from, to]) if (!ids.has(id)) return { error: `edges[${i}] names unknown section "${id}"` }
-    if (from !== to) parsedEdges.push([from, to])
+    // A self-edge says nothing, and a repeated one would draw twice.
+    if (from !== to && !parsedEdges.some(([a, b]) => a === from && b === to)) parsedEdges.push([from, to])
   }
 
   return { map: { version: 1, sections: parsed, edges: parsedEdges } }
@@ -103,28 +104,52 @@ export function baseDir(pattern: string): string {
   return plain.filter(Boolean).join('/')
 }
 
+/**
+ * How specific a pattern is, compared in order: the longer its folder before
+ * any wildcard, then the more fixed (non-wildcard) characters, then the fewer
+ * `**`. So a pattern for test files under `src` beats `src/**`, whatever order the sections come in.
+ */
+function specificity(pattern: string): [number, number, number] {
+  return [baseDir(pattern).length, pattern.replace(/[*?]/g, '').length, -(pattern.match(/\*\*/g)?.length ?? 0)]
+}
+
+const moreSpecific = (a: [number, number, number], b: [number, number, number]) =>
+  a[0] !== b[0] ? a[0] > b[0] : a[1] !== b[1] ? a[1] > b[1] : a[2] > b[2]
+
 /** The section owning a repo-relative path: the one whose matching pattern is most specific. */
 export function sectionOf(map: ProjectMap, path: string): MapSection | undefined {
   let best: MapSection | undefined
-  let bestDepth = -1
+  let bestScore: [number, number, number] | undefined
   for (const section of map.sections) {
     for (const pattern of section.paths) {
       if (!globToRegExp(pattern).test(path)) continue
-      const depth = baseDir(pattern).length
-      if (depth > bestDepth) {
+      const score = specificity(pattern)
+      if (!bestScore || moreSpecific(score, bestScore)) {
         best = section
-        bestDepth = depth
+        bestScore = score
       }
     }
   }
   return best
 }
 
-/** `path` relative to `root`, or undefined when it lies outside it. */
+/** A Windows path (`C:\repo\src`) in the `/` form the patterns use (`C:/repo/src`); others as they are. */
+export const toSlashes = (path: string) => path.replace(/\\/g, '/')
+
+/** Whether a path is absolute: `/…`, or a Windows drive (`C:/…`). */
+export const isAbsolute = (path: string) => path.startsWith('/') || /^[A-Za-z]:\//.test(path)
+
+/**
+ * `path` relative to `root`, or undefined when it lies outside it; both may be
+ * Windows paths. A drive path compares without case, as Windows does.
+ */
 export function relativeTo(root: string, path: string): string | undefined {
-  if (!path.startsWith('/')) return path.replace(/^\.\//, '')
-  const prefix = root.endsWith('/') ? root : `${root}/`
-  return path.startsWith(prefix) ? path.slice(prefix.length) : undefined
+  const target = toSlashes(path)
+  if (!isAbsolute(target)) return target.replace(/^\.\//, '')
+  const base = toSlashes(root).replace(/\/+$/, '') + '/'
+  const isDrive = /^[A-Za-z]:\//.test(base)
+  const starts = isDrive ? target.toLowerCase().startsWith(base.toLowerCase()) : target.startsWith(base)
+  return starts ? target.slice(base.length) : undefined
 }
 
 /** Whether drift tracking cares about a path: hidden and build folders don't count. */

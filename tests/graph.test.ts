@@ -3,7 +3,7 @@ import { describe, expect, test } from 'claude-code/testing'
 import type { ProjectMap } from '../types'
 import { baseDir, globToRegExp, parseMap, relativeTo, sectionOf, unmappedTopDirs } from '../hooks/graph'
 import { displayEdges, layoutMap } from '../hooks/layout'
-import { isActivity, locate, pathsInCommand } from '../hooks/activity'
+import { isActivity, locate, pathsFrom, pathsInCommand } from '../hooks/activity'
 import { pathHint } from '../hooks/boxes'
 
 const MAP: ProjectMap = {
@@ -36,6 +36,15 @@ describe('globToRegExp', () => {
 })
 
 describe('sectionOf', () => {
+  test('a tie on the folder goes to the pattern with more fixed characters, in either order', () => {
+    const tests = { id: 'tests', label: 'Tests', paths: ['src/**/*.test.ts'] }
+    const app = { id: 'app', label: 'App', paths: ['src/**'] }
+    for (const sections of [[app, tests], [tests, app]]) {
+      const map: ProjectMap = { version: 1, sections, edges: [] }
+      expect(sectionOf(map, 'src/api/user.test.ts')?.id).toBe('tests')
+      expect(sectionOf(map, 'src/api/user.ts')?.id).toBe('app')
+    }
+  })
   test('the most specific pattern wins', () => {
     expect(sectionOf(MAP, 'src/ui/App.tsx')?.id).toBe('ui')
     expect(sectionOf(MAP, 'src/api/x.ts')?.id).toBe('api')
@@ -53,9 +62,9 @@ describe('sectionOf', () => {
 })
 
 describe('parseMap', () => {
-  test('accepts a valid map and drops self-edges', () => {
-    const parsed = parseMap(JSON.stringify({ ...MAP, edges: [...MAP.edges, ['ui', 'ui']] }))
-    expect('map' in parsed && parsed.map.edges.length).toBe(3)
+  test('accepts a valid map and drops self-edges and repeated edges', () => {
+    const parsed = parseMap(JSON.stringify({ ...MAP, edges: [...MAP.edges, ['ui', 'ui'], ['ui', 'api']] }))
+    expect('map' in parsed && parsed.map.edges).toEqual(MAP.edges)
   })
   test('names the problem', () => {
     expect(parseMap('{')).toMatchObject({ error: expect.stringContaining('not valid JSON') })
@@ -187,5 +196,39 @@ describe('box labels', () => {
     expect(pathHint(['src/**/*.ts'])).toBe('src/**/*.ts')
     expect(pathHint(['*.md'])).toBe('*.md')
     expect(pathHint(['hooks/boxes.ts', 'hooks/terminal.tsx', 'hooks/connectors.ts'])).toBe('boxes.ts +2')
+  })
+})
+
+describe('windows paths', () => {
+  test('a drive path is absolute, compared without case, and comes out with / separators', () => {
+    expect(relativeTo('C:\\Users\\me\\repo', 'C:\\Users\\me\\repo\\src\\ui\\App.tsx')).toBe('src/ui/App.tsx')
+    expect(relativeTo('C:\\Users\\me\\repo', 'c:\\users\\me\\repo\\docs\\a.md')).toBe('docs/a.md')
+    expect(relativeTo('C:\\Users\\me\\repo', 'D:\\other\\a.ts')).toBeUndefined()
+  })
+  test('a file tool on Windows lights the right section', () => {
+    expect(locate(MAP, 'C:\\repo', 'Read', { file_path: 'C:\\repo\\src\\ui\\App.tsx' })?.sections).toEqual(['ui'])
+  })
+  test('Windows paths in a command count; other backslashes (a regex) do not pass for paths', () => {
+    expect(pathsInCommand('type src\\api\\a.ts C:\\repo\\docs\\b.md')).toEqual(['src/api/a.ts', 'C:/repo/docs/b.md'])
+    expect(pathsInCommand("grep 'foo\\|bar' x")).toEqual([])
+  })
+})
+
+describe('cd in commands', () => {
+  test('paths after a cd are read from the folder it moved to', () => {
+    expect(locate(MAP, '/repo', 'Bash', { command: 'cd src/api && cat routes.ts' })?.sections).toEqual(['api'])
+    expect(pathsFrom('/repo', 'cd src && cat ui/App.tsx; cd .. && cat docs/a.md')).toEqual([
+      '/repo/src',
+      '/repo/src/ui/App.tsx',
+      '/repo',
+      '/repo/docs/a.md',
+    ])
+  })
+  test('after a cd to somewhere unknowable, relative paths count for nothing; absolute ones still do', () => {
+    expect(pathsFrom('/repo', 'cd ~ && cat src/ui/a.ts')).toEqual([])
+    expect(pathsFrom('/repo', 'cd $HOME; cat /repo/src/ui/a.ts')).toEqual(['/repo/src/ui/a.ts'])
+  })
+  test('without a cd, nothing changes', () => {
+    expect(pathsFrom('/repo', 'cat src/ui/a.ts | grep x')).toEqual(['/repo/src/ui/a.ts'])
   })
 })

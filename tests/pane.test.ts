@@ -192,22 +192,66 @@ test('parallel commands over several files light every section they touch', asyn
   await after.unmount()
 })
 
-test('a session that starts with the pane closed says how to reopen it', async ($, on) => {
+/**
+ * A fake Claude Code pane: `$.ui.open` places it only when the terminal is wide
+ * enough or the person asked (a command), as the real one does; the test
+ * widens the terminal by flipping `wide`.
+ */
+function fakePane(on: On) {
+  // `drawsPanes` false is the VS Code panel: a surface is attached but places no panes.
+  const pane = { isOpen: false, isPlaced: false, wide: false, drawsPanes: true }
   const statuses: (string | undefined)[] = []
   on('command.register', async () => ({ value: undefined }) as never)
-  on('ui.open', async () => ({ value: { isPlaced: true } }) as never)
+  on('ui.open', async () => {
+    pane.isOpen = true
+    pane.isPlaced = pane.drawsPanes && pane.wide
+    if (pane.isPlaced) return { value: { isPlaced: true } } as never
+    const reason = pane.drawsPanes
+      ? 'opened unasked under the 144 columns floor; the terminal is 100 columns'
+      : 'the attached surfaces (vscode) place no panes'
+    return { value: { isPlaced: false, reason } } as never
+  })
+  on('ui.panes', async () => ({
+    value: pane.isOpen ? [{ id: 'minimap', title: 'Minimap', isShown: pane.isPlaced, isFocused: false, isPlaced: pane.isPlaced }] : [],
+  }) as never)
   on('ui.status', async (_, e) => {
     statuses.push((e as { text?: string }).text)
     return { value: undefined } as never
   })
   on('session.start', async (_, e) => e as never)
+  on('turn.start', async (_, e) => ({ turnId: e.turnId }) as never)
+  return { pane, statuses }
+}
+
+test('a pane the person closed stays closed, and the line under the prompt says how to reopen it', async ($, on) => {
+  const { pane, statuses } = fakePane(on)
+  pane.wide = true
   mock.store(on, { paneClosed: true })
   fakeRepo(on, { 'minimap.json': JSON.stringify(MAP) }, ['src/api', 'src/db'])
 
   await $.session.start({ source: 'startup', cwd: '/repo' } as never)
+  expect(pane.isOpen).toBe(false)
   expect(statuses.at(-1)).toBe('pane closed · /minimap to reopen')
 
   await run($, '')
+  expect(pane.isPlaced).toBe(true)
+  expect(statuses.at(-1)).toBeUndefined()
+})
+
+test('in a narrow terminal the pane waits, without claiming it was closed, and is picked up once it shows', async ($, on) => {
+  const { pane, statuses } = fakePane(on)
+  mock.store(on)
+  fakeRepo(on, { 'minimap.json': JSON.stringify(MAP) }, ['src/api', 'src/db'])
+
+  // Too narrow for a pane nobody asked for: it waits undrawn.
+  await $.session.start({ source: 'startup', cwd: '/repo' } as never)
+  expect(pane.isOpen).toBe(true)
+  expect(pane.isPlaced).toBe(false)
+  expect(statuses.at(-1)).toBe('/minimap to open the map')
+
+  // The terminal gets wider and Claude Code places the waiting pane; the next turn notices.
+  pane.isPlaced = true
+  await $.turn.start({ text: 'go', turnId: 't1' } as never)
   expect(statuses.at(-1)).toBeUndefined()
 })
 
@@ -278,4 +322,35 @@ test("a repo still on the old file name keeps its map, and update edits that fil
   await run($, 'update')
   await clock.advance(10)
   expect(prompts[0]).toContain('Update the project map at `claude-nodes.json`')
+})
+
+test('update sends Claude the map file as it is, fields the plugin ignores included', async ($, on) => {
+  const clock = mock.clock(on)
+  const prompts: string[] = []
+  on('prompt.submit', async (_, e) => {
+    prompts.push(e.text)
+    return { drop: 'captured by the test' } as never
+  })
+  // "owner" means nothing to minimap, but it is the person's: Claude must see it to keep it.
+  const text = JSON.stringify({ ...MAP, owner: 'platform-team' }, null, 2)
+  fakeRepo(on, { 'minimap.json': text }, ['src/api', 'src/db'])
+  await run($, 'reload')
+  await run($, 'update')
+  await clock.advance(10)
+  expect(prompts[0]).toContain('"owner": "platform-team"')
+  expect(prompts[0]).toContain(text)
+})
+
+test('where no pane can be drawn (the VS Code panel), no hint, and /minimap says why', async ($, on) => {
+  const { pane, statuses } = fakePane(on)
+  pane.drawsPanes = false
+  mock.store(on)
+  fakeRepo(on, { 'minimap.json': JSON.stringify(MAP) }, ['src/api', 'src/db'])
+
+  await $.session.start({ source: 'startup', cwd: '/repo' } as never)
+  expect(statuses.at(-1)).toBeUndefined()
+
+  const answer = (await run($, '')) as { text?: string }
+  expect(answer.text).toContain("can't show plugin panes")
+  expect(statuses.at(-1)).toBeUndefined()
 })
