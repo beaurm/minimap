@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import type { MapActivity, ProjectMap } from '../types'
-import { routeBand } from '../hooks/connectors'
+import { connectorRows, routeBand } from '../hooks/connectors'
 import { globToRegExp } from '../hooks/graph'
 import { layoutMap } from '../hooks/layout'
 import { EMPTY_TRACKING, MAIN, endCall, endTurn, highlightOf, sanitize, startCall, startTurn } from '../hooks/tracking'
@@ -122,5 +122,50 @@ describe('line ports', () => {
     expect(center('top') - byTarget.get('left')!.fa).toBe(byTarget.get('right')!.fa - center('top'))
     // Both sides turn on the same row.
     expect(byTarget.get('left')!.elbow).toBe(byTarget.get('right')!.elbow)
+  })
+  test('lines into one box merge: one arrow at its center, joined on one row', () => {
+    const map: ProjectMap = {
+      version: 1,
+      sections: ['a', 'b', 'c', 'db'].map(id => ({ id, label: id, paths: [id] })),
+      edges: [['a', 'db'], ['b', 'db'], ['c', 'db']],
+    }
+    const layout = layoutMap(map, 80)
+    const { routes, height } = routeBand(layout, 0)
+    expect(new Set([...routes.values()].map(r => r.tb))).toEqual(new Set([layout.slots.get('db')!.center]))
+    expect(new Set([...routes.values()].filter(r => r.fa !== r.tb).map(r => r.elbow)).size).toBe(1)
+    expect(height).toBe(3)
+  })
+  test('lines into a box land where one can drop straight in, and a fan keeps its order: no jogs, no needless crossings', () => {
+    // A 12-section web app, as minimap init mapped it: at 80 columns API's lane splits to Auth
+    // and Search beside Integrations' line, and Auth sits right over Database.
+    const map: ProjectMap = {
+      version: 1,
+      sections: ([['web', 'Web App'], ['api', 'API'], ['auth', 'Auth'], ['billing', 'Billing'], ['jobs', 'Jobs'], ['db', 'Database'], ['tests', 'Tests'], ['admin', 'Admin'], ['files', 'Files'], ['integrations', 'Integrations'], ['notifications', 'Notifications'], ['search', 'Search']] as const).map(([id, label]) => ({ id, label, paths: [`${id}/**`] })),
+      edges: [['web', 'api'], ['api', 'auth'], ['api', 'billing'], ['api', 'db'], ['api', 'jobs'], ['api', 'admin'], ['api', 'files'], ['api', 'integrations'], ['api', 'notifications'], ['api', 'search'], ['auth', 'db'], ['auth', 'jobs'], ['billing', 'db'], ['billing', 'jobs'], ['admin', 'billing'], ['admin', 'db'], ['files', 'billing'], ['files', 'db'], ['integrations', 'notifications'], ['integrations', 'jobs'], ['integrations', 'db'], ['notifications', 'jobs'], ['notifications', 'db'], ['search', 'db'], ['tests', 'api']],
+    }
+    const layout = layoutMap(map, 80)
+    const rowOf = (id: string) => layout.slots.get(id)!.layer
+    const band = (above: string) => connectorRows(layout, rowOf(above), new Set()).map(runs => runs.map(r => r.text).join(''))
+    const bridge = /[─┌└├┬┴]│[─┐┘┤┬┴]/
+    const jog = /[┌└├][┐┘┤]/
+    // Admin's row to Auth's: Search takes the lane's straight drop, Auth branches off it, nothing crosses.
+    expect(band('admin').some(row => bridge.test(row) || jog.test(row))).toBe(false)
+    // Auth's row to Database's: Auth drops straight in, and the other lines join that drop.
+    const routes = [...routeBand(layout, rowOf('auth')).routes].filter(([seg]) => seg.to === 'db')
+    const fromAuth = routes.find(([seg]) => seg.from === 'auth')![1]
+    expect(fromAuth.fa).toBe(fromAuth.tb)
+    expect(new Set(routes.map(([, r]) => r.tb))).toEqual(new Set([fromAuth.tb]))
+    expect(band('auth').some(row => jog.test(row))).toBe(false)
+  })
+  test('lines that only pass each other bridge over instead of drawing a join', () => {
+    // a and b both use c and d: however they are ordered, two of the lines must cross.
+    const map: ProjectMap = {
+      version: 1,
+      sections: ['a', 'b', 'c', 'd'].map(id => ({ id, label: id, paths: [id] })),
+      edges: [['a', 'c'], ['a', 'd'], ['b', 'c'], ['b', 'd']],
+    }
+    const text = connectorRows(layoutMap(map, 80), 0, new Set()).map(runs => runs.map(r => r.text).join(''))
+    expect(text.some(row => row.includes('─│'))).toBe(true)
+    expect(text.some(row => row.includes('┼'))).toBe(false)
   })
 })

@@ -133,6 +133,95 @@ function computeLayout(map: ProjectMap, columns: number): Layout {
 
 type Item = { id: string; kind: Slot['kind'] }
 
+/** Down-and-up sweeps tried after the first pass: maps this small settle in a few. */
+const SWEEPS = 8
+
+/**
+ * Orders each row to cross as few lines as it can. A first pass sorts each row
+ * by the mean position of what feeds it; then sweeps go down and up, sorting
+ * each row by its neighbors in the row just placed, and swap neighbors where
+ * that crosses fewer lines. The order with the fewest crossings wins, the first
+ * pass on a tie, so a map that already draws clean keeps its order.
+ */
+function orderRows(start: Item[][], segments: Segment[]): Item[][] {
+  // Lines that share an end merge instead of crossing, so each stretch counts once.
+  const links = [...new Map(segments.map(s => [`${s.from}>${s.to}`, [s.from, s.to] as const])).values()]
+  const parents = new Map<string, string[]>()
+  const children = new Map<string, string[]>()
+  for (const [a, b] of links) {
+    children.set(a, [...(children.get(a) ?? []), b])
+    parents.set(b, [...(parents.get(b) ?? []), a])
+  }
+  const rowOf = new Map<string, number>()
+  start.forEach((row, r) => row.forEach(item => rowOf.set(item.id, r)))
+  const bands = start.map((_, r) => links.filter(([a]) => rowOf.get(a) === r))
+
+  const positions = (rows: Item[][]) => {
+    const pos = new Map<string, number>()
+    for (const row of rows) row.forEach((item, i) => pos.set(item.id, i))
+    return pos
+  }
+  const crossings = (rows: Item[][], band: number) => {
+    const pos = positions(rows)
+    const ls = bands[band] ?? []
+    let n = 0
+    for (let i = 0; i < ls.length; i++) {
+      for (let j = i + 1; j < ls.length; j++) {
+        const [a, b] = ls[i]!
+        const [c, d] = ls[j]!
+        if (a !== c && b !== d && (pos.get(a)! - pos.get(c)!) * (pos.get(b)! - pos.get(d)!) < 0) n++
+      }
+    }
+    return n
+  }
+  const total = (rows: Item[][]) => rows.reduce((sum, _, r) => sum + crossings(rows, r), 0)
+
+  // Sorts row r by the mean position of its neighbors; one with none keeps its place.
+  const sortRow = (rows: Item[][], r: number, neighbors: Map<string, string[]>, lonely: (i: number) => number) => {
+    const pos = positions(rows)
+    const keyed = rows[r]!.map((item, i) => {
+      const at = (neighbors.get(item.id) ?? []).map(id => pos.get(id)!)
+      return { item, i, w: at.length ? at.reduce((x, y) => x + y, 0) / at.length : lonely(i) }
+    })
+    keyed.sort((x, y) => x.w - y.w || x.i - y.i)
+    rows[r] = keyed.map(k => k.item)
+  }
+
+  // Swaps neighbors in a row while that crosses fewer lines with the rows around it.
+  const transpose = (rows: Item[][]) => {
+    for (let pass = 0, improved = true; improved && pass < 10; pass++) {
+      improved = false
+      for (let r = 0; r < rows.length; r++) {
+        const row = rows[r]!
+        const around = () => (r > 0 ? crossings(rows, r - 1) : 0) + crossings(rows, r)
+        for (let i = 0; i + 1 < row.length; i++) {
+          const before = around()
+          ;[row[i], row[i + 1]] = [row[i + 1]!, row[i]!]
+          if (around() < before) improved = true
+          else [row[i], row[i + 1]] = [row[i + 1]!, row[i]!]
+        }
+      }
+    }
+  }
+
+  const rows = start.map(row => [...row])
+  // First pass: what nothing feeds goes last.
+  for (let r = 1; r < rows.length; r++) sortRow(rows, r, parents, () => Infinity)
+  let best = rows.map(row => [...row])
+  let fewest = total(best)
+  for (let sweep = 0; sweep < SWEEPS && fewest > 0; sweep++) {
+    for (let r = rows.length - 2; r >= 0; r--) sortRow(rows, r, children, i => i)
+    for (let r = 1; r < rows.length; r++) sortRow(rows, r, parents, i => i)
+    transpose(rows)
+    const n = total(rows)
+    if (n < fewest) {
+      fewest = n
+      best = rows.map(row => [...row])
+    }
+  }
+  return best
+}
+
 /**
  * Lays the map out with at most `perRow` boxes on a row: a layer with more
  * takes several rows, and an edge into a later row passes the rows between
@@ -163,7 +252,8 @@ function place(
     next += count
   }
 
-  // Rows of ids, with a lane id for each row an edge passes through.
+  // Rows of ids, with a lane id for each row an edge passes through. Edges from
+  // one box share its lane on a row, and split only past their last shared row.
   const rows: Item[][] = Array.from({ length: next }, () => [])
   for (const s of map.sections) rows[rowOf.get(s.id)!]!.push({ id: s.id, kind: 'box' })
   const segments: Segment[] = []
@@ -174,28 +264,15 @@ function place(
     if (b <= a) continue // an upward edge (a cycle): not drawn
     let prev = from
     for (let r = a + 1; r < b; r++) {
-      const lane = `${from}>${to}@${r}`
-      rows[r]!.push({ id: lane, kind: 'lane' })
+      const lane = `${from}@${r}`
+      if (!rows[r]!.some(item => item.id === lane)) rows[r]!.push({ id: lane, kind: 'lane' })
       segments.push({ from: prev, to: lane, edge })
       prev = lane
     }
     segments.push({ from: prev, to, edge })
   }
 
-  // Order each row by the mean position of what feeds it, to limit crossings.
-  const order = new Map<string, number>()
-  rows[0]!.forEach((item, i) => order.set(item.id, i))
-  for (let r = 1; r < rows.length; r++) {
-    const row = rows[r]!
-    const weight = (id: string) => {
-      const parents = segments.filter(s => s.to === id).map(s => order.get(s.from) ?? 0)
-      return parents.length ? parents.reduce((x, y) => x + y, 0) / parents.length : Infinity
-    }
-    const keyed = row.map((item, i) => ({ item, w: weight(item.id), i }))
-    keyed.sort((x, y) => x.w - y.w || x.i - y.i)
-    rows[r] = keyed.map(k => k.item)
-    rows[r]!.forEach((item, i) => order.set(item.id, i))
-  }
+  rows.splice(0, rows.length, ...orderRows(rows, segments))
 
   const rowWidth = (row: Item[], boxW: number) =>
     row.reduce((sum, item) => sum + (item.kind === 'box' ? boxW : 1), 0) + GAP * Math.max(0, row.length - 1)

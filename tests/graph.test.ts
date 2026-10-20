@@ -99,6 +99,16 @@ describe('layoutMap', () => {
     expect(layout.layers[1]!.some(s => s.kind === 'lane')).toBe(true)
     expect(layout.segments.filter(s => s.edge[0] === 'x' && s.edge[1] === 'c')).toHaveLength(2)
   })
+  test('edges from one box that skip the same row share one lane through it', () => {
+    // x uses k (one layer down), and c and d (two down): one lane on the middle row carries both.
+    const map: ProjectMap = {
+      version: 1,
+      sections: ['v', 'x', 'w', 'k', 'c', 'd'].map(id => ({ id, label: id, paths: [id] })),
+      edges: [['v', 'w'], ['w', 'c'], ['w', 'd'], ['x', 'k'], ['x', 'c'], ['x', 'd']],
+    }
+    const layout = layoutMap(map, 80)
+    expect(layout.layers[1]!.filter(s => s.kind === 'lane')).toHaveLength(1)
+  })
   test('an edge a longer path already implies is not drawn', () => {
     // ui → core is implied by ui → api → core.
     expect(displayEdges(MAP.edges)).toEqual([['ui', 'api'], ['api', 'core']])
@@ -141,9 +151,11 @@ describe('layoutMap', () => {
     expect(layout.boxW).toBeGreaterThanOrEqual(19)
     expect(layout.width).toBeLessThanOrEqual(60)
     expect(layout.layers.length).toBeGreaterThan(2)
-    // A pane too narrow for one such box (with the lines passing beside it): the boxes shrink to fit after all.
-    const narrow = layoutMap(map, 30)
-    expect(narrow.width).toBeLessThanOrEqual(30)
+    // App's lines down share one lane, so a box and that lane still fit in 30 columns.
+    expect(layoutMap(map, 30).boxW).toBeGreaterThanOrEqual(19)
+    // A pane too narrow for one such box (with the lane beside it): the boxes shrink to fit after all.
+    const narrow = layoutMap(map, 20)
+    expect(narrow.width).toBeLessThanOrEqual(20)
     expect(narrow.boxW).toBeLessThan(19)
   })
   test('a cycle does not hang the layout', () => {

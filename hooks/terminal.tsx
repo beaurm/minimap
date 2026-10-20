@@ -168,8 +168,8 @@ export function terminalMap({ Box, Text }: Els, { map, layout, lit }: PaneView):
             {row.map((slot, k) => {
               const margin = k === 0 ? slot.left : layout.gap
               if (slot.kind === 'lane') {
-                const segment = layout.segments.find(s => s.to === slot.id)
-                const hot = segment ? isHotEdge(segment.edge, lit.active) : false
+                // A lane several edges share is hot when any of them is.
+                const hot = layout.segments.some(s => s.to === slot.id && isHotEdge(s.edge, lit.active))
                 return (
                   <Box flexDirection="column" width={1} marginLeft={margin}>
                     {Array.from({ length: BOX_ROWS }, () => (hot ? <Text color="claude">│</Text> : <Text dimColor>│</Text>))}
