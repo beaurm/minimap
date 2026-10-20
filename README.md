@@ -4,7 +4,7 @@ A Claude Code mod that keeps a high-level map of your project in a side pane: it
 
 ![minimap demo](assets/demo.webp)
 
-minimap runs in the terminal (`claude` CLI), including the built-in terminal of any editor. The VS Code extension is not supported.
+minimap runs in the terminal (`claude` CLI), including the built-in terminal of any editor. The VS Code extension and the Claude desktop app are not supported.
 
 ## Install
 
@@ -106,7 +106,7 @@ You can check this yourself: `claude plugin validate .` in this repo lists every
 ## Limitations
 
 - **Start Claude Code at the repo root.** minimap looks for `minimap.json` in the folder where the session starts, and reads paths from there. Started in a subfolder (or in one package of a monorepo), it finds no map.
-- **Plugin API changes.** minimap is built on Claude Code's plugin API, which is still in early access and may change between releases. A Claude Code update can break it. It is tested with Claude Code 2.1.299; older versions may not draw the pane.
+- **Plugin API changes.** minimap is built on Claude Code's plugin API, which is still in early access and may change between releases. A Claude Code update can break it. It is tested with Claude Code 2.1.299 through 2.1.304; older versions may not draw the pane.
 - **PowerShell on Windows.** PowerShell doesn't set `TERM`, and without it Claude Code doesn't draw the pane properly or let you click it. Set it before starting Claude Code:
   ```powershell
   $env:TERM = "xterm-256color"
