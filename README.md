@@ -2,21 +2,7 @@
 
 A Claude Code mod that keeps a high-level map of your project in a side pane: its main sections, how they depend on each other, and, live, which section Claude is working in.
 
-```text
-○ Idle · last reading hooks/layout.ts · Layout
-
-                    ╭────────────────╮
-                    │    Pane UI     │
-                    │register.tsx +1 │
-                    ╰────────────────╯
-                           │ │ │
-           ┌───────────────┘ │ └───────────────┐
-           ▼                 ▼                 ▼
-╭────────────────╮  ╭────────────────╮  ╭────────────────╮
-│     Layout     │  │    Activity    │  │  Plugin Meta   │
-│   layout.ts    │  │  activity.ts   │  │ .claude-plugin │
-╰────────────────╯  ╰────────────────╯  ╰────────────────╯
-```
+![minimap demo](assets/demo.webp)
 
 minimap runs in the terminal (`claude` CLI), including the built-in terminal of any editor. The VS Code extension is not supported.
 
