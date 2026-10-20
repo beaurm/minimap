@@ -164,12 +164,20 @@ async function follow($: EngineInterface, section: string) {
 
 // ── The pane ─────────────────────────────────────────────────────────────────
 
+/**
+ * Whether the session runs in a terminal, the one surface minimap supports.
+ * The VS Code panel draws the pane broken and brings it back each session,
+ * so there (and in a -p run, with no surface) the pane is never opened.
+ */
+async function hasTerminal($: EngineInterface) {
+  return (await $.session.surfaces()).includes('terminal')
+}
+
 /** Opens the pane; `asked` when the person asked for it, which also undoes a remembered close. */
 async function openPane($: EngineInterface, asked: boolean) {
   const opened = await $.ui.open({ id: PANE, title: TITLE })
   // Undrawn, Claude Code says why: under the width floor ("144 columns ...", a
-  // terminal to widen), or a surface that places no panes (the VS Code panel)
-  // or none at all ("no-surface", a -p run), where /minimap can't help.
+  // terminal to widen), or a surface that places no panes, where /minimap can't help.
   const wait = opened.isPlaced ? null : /column/i.test(opened.reason) ? 'width' : 'surface'
   await update($, paneWait, () => wait)
   if (asked) await $.store.set(CLOSED_KEY, false)
@@ -227,7 +235,8 @@ export const register: Register = on => {
     await update($, followed, () => null)
     // The pane opens with each session, unless the person closed it last time.
     // Opening resolves at once, placed or waiting for a wider terminal, so the session waits for it.
-    if ((await $.store.get(CLOSED_KEY)) === true) await syncPane($).catch(() => {})
+    if (!(await hasTerminal($))) await update($, paneWait, () => 'surface')
+    else if ((await $.store.get(CLOSED_KEY)) === true) await syncPane($).catch(() => {})
     else await openPane($, false).catch(() => {})
 
     return next(e)
@@ -246,9 +255,10 @@ export const register: Register = on => {
     const map = await read($, graph)
 
     if (sub === '') {
+      const unsupported = 'This Claude Code surface can\'t show plugin panes. minimap needs Claude Code in a terminal (`claude`).'
+      if (!(await hasTerminal($))) return { text: unsupported }
       const opened = await openPane($, true)
-      if (opened.isPlaced) return { text: 'Minimap opened.' }
-      return { text: 'This Claude Code surface can\'t show plugin panes. minimap needs Claude Code in a terminal (`claude`).' }
+      return { text: opened.isPlaced ? 'Minimap opened.' : unsupported }
     }
     if (sub === 'reload') {
       await loadMap($)

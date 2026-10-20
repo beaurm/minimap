@@ -121,7 +121,12 @@ You can check this yourself: `claude plugin validate .` in this repo lists every
 
 - **Start Claude Code at the repo root.** minimap looks for `minimap.json` in the folder where the session starts, and reads paths from there. Started in a subfolder (or in one package of a monorepo), it finds no map.
 - **Plugin API changes.** minimap is built on Claude Code's plugin API, which is still in early access and may change between releases. A Claude Code update can break it. It is tested with Claude Code 2.1.299; older versions may not draw the pane.
-- **Windows is untested.** Paths are handled for Windows, but it hasn't been confirmed on a Windows machine yet.
+- **PowerShell on Windows.** PowerShell doesn't set `TERM`, and without it Claude Code doesn't draw the pane properly or let you click it. Set it before starting Claude Code:
+  ```powershell
+  $env:TERM = "xterm-256color"
+  claude
+  ```
+  To make it stick, add the first line to your PowerShell profile (`notepad $PROFILE`). Bash terminals on Windows (Git Bash, WSL) work as is.
 - **Wide characters in labels.** Box widths count characters, so labels with wide characters (Chinese, Japanese, Korean, emoji) can misalign their boxes.
 
 ## Uninstall

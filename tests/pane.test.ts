@@ -198,10 +198,11 @@ test('parallel commands over several files light every section they touch', asyn
  * widens the terminal by flipping `wide`.
  */
 function fakePane(on: On) {
-  // `drawsPanes` false is the VS Code panel: a surface is attached but places no panes.
-  const pane = { isOpen: false, isPlaced: false, wide: false, drawsPanes: true }
+  // `drawsPanes` false is a surface that is attached but places no panes.
+  const pane = { isOpen: false, isPlaced: false, wide: false, drawsPanes: true, surfaces: ['terminal'] }
   const statuses: (string | undefined)[] = []
   on('command.register', async () => ({ value: undefined }) as never)
+  on('session.surfaces', async () => ({ value: pane.surfaces }) as never)
   on('ui.open', async () => {
     pane.isOpen = true
     pane.isPlaced = pane.drawsPanes && pane.wide
@@ -341,7 +342,7 @@ test('update sends Claude the map file as it is, fields the plugin ignores inclu
   expect(prompts[0]).toContain(text)
 })
 
-test('where no pane can be drawn (the VS Code panel), no hint, and /minimap says why', async ($, on) => {
+test('where no pane can be drawn, no hint, and /minimap says why', async ($, on) => {
   const { pane, statuses } = fakePane(on)
   pane.drawsPanes = false
   mock.store(on)
@@ -352,5 +353,24 @@ test('where no pane can be drawn (the VS Code panel), no hint, and /minimap says
 
   const answer = (await run($, '')) as { text?: string }
   expect(answer.text).toContain("can't show plugin panes")
+  expect(statuses.at(-1)).toBeUndefined()
+})
+
+test('outside a terminal (the VS Code panel) the pane never opens, even where it could be drawn', async ($, on) => {
+  const { pane, statuses } = fakePane(on)
+  pane.wide = true
+  pane.surfaces = ['vscode']
+  mock.store(on)
+  fakeRepo(on, { 'minimap.json': JSON.stringify(MAP) }, ['src/api', 'src/db'])
+
+  await $.session.start({ source: 'startup', cwd: '/repo' } as never)
+  expect(pane.isOpen).toBe(false)
+  expect(statuses.at(-1)).toBeUndefined()
+
+  const answer = (await run($, '')) as { text?: string }
+  expect(answer.text).toContain("can't show plugin panes")
+  expect(pane.isOpen).toBe(false)
+
+  await $.turn.start({ text: 'go', turnId: 't1' } as never)
   expect(statuses.at(-1)).toBeUndefined()
 })
